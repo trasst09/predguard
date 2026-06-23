@@ -1,0 +1,10 @@
+{
+  "name": "predguard",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PredatorGuard prototype with a local Node auth backend.",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  }
+}

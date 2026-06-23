@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="dashboard">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Guardian Console</p>
+              <h1>PredatorGuard</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="hero-grid">
+          <section class="hero-copy">
+            <p class="kicker">Operations overview</p>
+            <h2>One entry point, with dedicated pages for each core workflow.</h2>
+            <p class="hero-text">
+              Use the dashboard as the command center, then move into onboarding, missions,
+              training, reporting, leaderboard, and roadmap pages for focused work.
+            </p>
+            <div class="hero-actions">
+              <a class="primary-button" href="./missions.html">Open mission board</a>
+              <a class="secondary-button" href="./reporting.html">Create report</a>
+            </div>
+          </section>
+          <aside class="hero-panel">
+            <div class="panel-header">
+              <p>Guardian Readiness</p>
+              <span id="readiness-badge">Next unlock</span>
+            </div>
+            <div class="readiness-ring">
+              <div class="readiness-core">
+                <strong id="readiness-score">74%</strong>
+                <span>eligible for next tier</span>
+              </div>
+            </div>
+            <div class="readiness-list" id="readiness-list"></div>
+          </aside>
+        </div>
+      </header>
+
+      <main>
+        <section class="stat-strip" id="dashboard-stats"></section>
+        <section class="content-grid">
+          <article class="glass-card span-two">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Workflow map</p>
+                <h3>Dedicated surfaces</h3>
+              </div>
+            </div>
+            <div class="page-link-grid" id="page-link-grid"></div>
+          </article>
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Profile</p>
+                <h3>Guardian snapshot</h3>
+              </div>
+            </div>
+            <div class="profile-card" id="profile-card"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

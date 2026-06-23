@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Account</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="account">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Profile Controls</p>
+              <h1>Account Settings</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="section-intro">
+          <p class="kicker">Stored account profile</p>
+          <h2>Manage your details and password from one protected page.</h2>
+          <p class="hero-text">
+            Profile updates are persisted on the backend, and password changes require your current
+            password before a new one is saved.
+          </p>
+        </div>
+      </header>
+      <main>
+        <section class="content-grid">
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Account summary</p>
+                <h3>Profile snapshot</h3>
+              </div>
+            </div>
+            <div class="profile-card" id="account-summary"></div>
+          </article>
+          <article class="glass-card span-two">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Editable fields</p>
+                <h3>Profile details</h3>
+              </div>
+            </div>
+            <form class="report-form" id="account-form">
+              <label>
+                Display name
+                <input type="text" name="displayName" required />
+              </label>
+              <label>
+                Email
+                <input type="email" name="email" readonly />
+              </label>
+              <label>
+                Region
+                <input type="text" name="region" required />
+              </label>
+              <button class="primary-button form-button" type="submit">Save profile</button>
+            </form>
+            <div class="form-feedback" id="account-feedback"></div>
+          </article>
+        </section>
+
+        <section class="content-grid">
+          <article class="glass-card span-two">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Password security</p>
+                <h3>Change password</h3>
+              </div>
+            </div>
+            <form class="report-form" id="password-form">
+              <label>
+                Current password
+                <input type="password" name="currentPassword" required />
+              </label>
+              <label>
+                New password
+                <input type="password" name="newPassword" minlength="8" required />
+              </label>
+              <button class="primary-button form-button" type="submit">Update password</button>
+            </form>
+            <div class="form-feedback" id="password-feedback"></div>
+          </article>
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Access model</p>
+                <h3>How permissions work</h3>
+              </div>
+            </div>
+            <div class="report-preview">
+              Standard members can manage their own account profile and password. Admin-only paths
+              are hidden from member sessions and blocked server-side even if someone types the URL
+              directly.
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

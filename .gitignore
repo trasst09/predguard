@@ -1,0 +1,4 @@
+data/
+.env
+server.out
+server.err

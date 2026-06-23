@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Admin</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="admin">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Restricted Controls</p>
+              <h1>Admin Console</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="section-intro">
+          <p class="kicker">Admin-only path</p>
+          <h2>Review members, control access, and manage verification state.</h2>
+          <p class="hero-text">
+            This page is only served to authenticated administrators. Member sessions are
+            redirected away server-side and blocked from admin APIs.
+          </p>
+        </div>
+      </header>
+      <main>
+        <section class="admin-summary" id="admin-summary"></section>
+        <section class="glass-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">User management</p>
+              <h3>Persisted accounts</h3>
+            </div>
+          </div>
+          <div class="admin-user-list" id="admin-user-list"></div>
+        </section>
+      </main>
+    </div>
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

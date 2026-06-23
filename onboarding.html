@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Onboarding</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="onboarding">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Role Progression</p>
+              <h1>Onboarding & Verification</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="section-intro">
+          <p class="kicker">Week 1-2 flow</p>
+          <h2>Progressive verification and training unlocks.</h2>
+          <p class="hero-text">
+            Identity checks, screening, training completion, and recurring review determine who
+            can access higher-trust workflows.
+          </p>
+        </div>
+      </header>
+      <main>
+        <section class="content-grid">
+          <article class="glass-card span-two">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Verification timeline</p>
+                <h3>Required checkpoints</h3>
+              </div>
+            </div>
+            <div class="timeline" id="verification-timeline"></div>
+          </article>
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Current status</p>
+                <h3>Guardian profile</h3>
+              </div>
+            </div>
+            <div class="profile-card" id="profile-card"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

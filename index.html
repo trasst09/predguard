@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Sign In</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body class="auth-body">
+    <div class="page-shell auth-shell auth-shell-wide">
+      <section class="auth-hero">
+        <div class="brand-lockup">
+          <span class="brand-mark">PG</span>
+          <div>
+            <p class="eyebrow">US Pilot / Secure Access</p>
+            <h1>PredatorGuard</h1>
+          </div>
+        </div>
+        <p class="kicker">Verified Guardian Network</p>
+        <h2>Secure sign in and account creation for role-gated platform access.</h2>
+        <p class="hero-text">
+          This version replaces the mock portal with a real backend for registration, sign-in,
+          account management, session cookies, and admin-only access controls. If Supabase
+          environment variables are present, the same flows persist users there automatically.
+        </p>
+        <div class="hero-note">
+          In Supabase mode, the first registered account is promoted to admin so you can unlock the
+          restricted path without manual database edits. Without Supabase config, local seed users
+          are created for testing.
+        </div>
+        <div class="auth-metrics">
+          <div class="mini-stat">
+            <strong>Member</strong>
+            <span>Self-serve sign-up with profile storage</span>
+          </div>
+          <div class="mini-stat">
+            <strong>Admin</strong>
+            <span>Protected access path for account oversight</span>
+          </div>
+          <div class="mini-stat">
+            <strong>Session</strong>
+            <span>HTTP-only cookie-backed authentication</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="auth-card glass-card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">Access portal</p>
+            <h3>Guardian sign in</h3>
+          </div>
+          <span class="chip">Live auth</span>
+        </div>
+        <form class="report-form auth-form" id="login-form">
+          <label>
+            Email
+            <input type="email" name="email" placeholder="guardian@predguard.local" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="Enter your password" required />
+          </label>
+          <button class="primary-button form-button" type="submit">Sign in</button>
+        </form>
+        <div class="form-feedback" id="auth-feedback"></div>
+        <div class="auth-links">
+          <span class="text-link">Seed admin: `admin@predguard.local` / `ChangeMe!123`</span>
+          <span class="text-link">Seed member: `guardian@predguard.local` / `Guardian123!`</span>
+          <span class="text-link">Supabase setup: configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SERVICE_ROLE_KEY`.</span>
+        </div>
+      </section>
+
+      <section class="auth-card glass-card">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">New account</p>
+            <h3>Create guardian profile</h3>
+          </div>
+          <span class="chip">Stored locally</span>
+        </div>
+        <form class="report-form auth-form" id="register-form">
+          <label>
+            Display name
+            <input type="text" name="displayName" placeholder="Maya" required />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" placeholder="guardian@example.com" required />
+          </label>
+          <label>
+            Region
+            <input type="text" name="region" placeholder="Bay Area, CA" required />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              name="password"
+              placeholder="At least 8 characters"
+              minlength="8"
+              required
+            />
+          </label>
+          <button class="primary-button form-button" type="submit">Create account</button>
+        </form>
+        <div class="form-feedback" id="register-feedback"></div>
+      </section>
+    </div>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Leaderboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="leaderboard">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Recognition</p>
+              <h1>Leaderboard</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="section-intro">
+          <p class="kicker">Reward protocol adherence</p>
+          <h2>Points reflect training, reporting quality, and responsible support work.</h2>
+          <p class="hero-text">
+            The leaderboard showcases contribution without incentivizing confrontation or drama.
+          </p>
+        </div>
+      </header>
+      <main>
+        <section class="content-grid">
+          <article class="glass-card span-two">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Rankings</p>
+                <h3>Top guardians</h3>
+              </div>
+            </div>
+            <div class="leaderboard" id="leaderboard"></div>
+          </article>
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Scoring model</p>
+                <h3>How points are earned</h3>
+              </div>
+            </div>
+            <div class="module-list" id="scoring-list"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+    <script src="./data.js"></script>
+    <script src="./app.js"></script>
+  </body>
+</html>
