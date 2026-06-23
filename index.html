@@ -30,8 +30,8 @@
         </p>
         <div class="hero-note">
           The first registered account is promoted to admin so you can unlock the restricted path
-          without manual database edits. This server requires `SUPABASE_URL`,
-          `SUPABASE_ANON_KEY`, and `SUPABASE_SECRET_KEY`.
+          without manual database edits on the server-backed deployment. GitHub Pages uses
+          `config.js` with the public `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
         </div>
         <div class="auth-metrics">
           <div class="mini-stat">
@@ -70,8 +70,8 @@
         </form>
         <div class="form-feedback" id="auth-feedback"></div>
         <div class="auth-links">
-          <span class="text-link">First account created becomes the initial admin.</span>
-          <span class="text-link">Supabase setup: configure `SUPABASE_URL`, `SUPABASE_ANON_KEY`, and `SUPABASE_SECRET_KEY`.</span>
+          <span class="text-link">Initial admin auto-promotion happens on the server-backed deployment.</span>
+          <span class="text-link">Static deploys: set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `config.js`.</span>
         </div>
       </section>
 
@@ -154,6 +154,7 @@
         </div>
       </section>
     </div>
+    <script src="./config.js"></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

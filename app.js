@@ -54,6 +54,7 @@ const mapRegionsData = typeof mapRegions !== "undefined" ? mapRegions : [];
 const mapUsersData = typeof mapUsers !== "undefined" ? mapUsers : [];
 const mapQuestsData = typeof mapQuests !== "undefined" ? mapQuests : [];
 const LEGAL_VERSION = "2026-06-22";
+const STATIC_SUPABASE_SCRIPT = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 
 let sessionUser = null;
 let adminUsers = [];
@@ -64,6 +65,24 @@ let mapState = {
 };
 let liveMap = null;
 let liveMapLayers = [];
+let authTransportPromise = null;
+let browserSupabaseClient = null;
+
+function getRuntimeConfig() {
+  const config = window.PREDGUARD_CONFIG || {};
+
+  return {
+    supabaseUrl:
+      config.supabaseUrl || config.SUPABASE_URL || config.nextPublicSupabaseUrl || "",
+    supabaseAnonKey:
+      config.supabaseAnonKey ||
+      config.SUPABASE_ANON_KEY ||
+      config.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
+      ""
+  };
+}
+
+const runtimeConfig = getRuntimeConfig();
 
 const US_STATES = [
   "Alabama",
@@ -195,7 +214,204 @@ function buildProfile(user) {
   };
 }
 
+function getPageUrl(pageName) {
+  return new URL(pageName, window.location.href).toString();
+}
+
+function goToPage(pageName) {
+  window.location.href = getPageUrl(pageName);
+}
+
+function isApiRequest(url) {
+  return typeof url === "string" && url.startsWith("/api/");
+}
+
+function parseJsonBody(body) {
+  if (!body) {
+    return {};
+  }
+
+  if (typeof body === "string") {
+    try {
+      return JSON.parse(body);
+    } catch (error) {
+      throw new Error("Unable to read the request payload.");
+    }
+  }
+
+  return body;
+}
+
+function buildDefaultUserProfile({ id, email, displayName, region, isAdmin = false }) {
+  return {
+    id,
+    email: String(email || "").trim().toLowerCase(),
+    displayName: String(displayName || "").trim() || "Guardian",
+    role: isAdmin ? "Verifier / Moderator" : "Spotter / Tipster",
+    region: String(region || "").trim() || "United States",
+    verificationStatus: isAdmin ? "Officer path approved" : "Email verified / ID pending",
+    points: isAdmin ? 2000 : 100,
+    readinessScore: isAdmin ? 98 : 35,
+    nextRole: isAdmin ? "Officer / LE Partner" : "Decoy / Support",
+    isAdmin,
+    legalVersion: LEGAL_VERSION,
+    termsAcceptedAt: null,
+    privacyAcceptedAt: null,
+    locationTrackingPreference: "unset",
+    locationTrackingUpdatedAt: null,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+    lastLoginAt: null
+  };
+}
+
+function mapBrowserSupabaseProfile(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    email: record.email,
+    displayName: record.display_name,
+    role: record.role,
+    region: record.region,
+    verificationStatus: record.verification_status,
+    points: record.points,
+    readinessScore: record.readiness_score,
+    nextRole: getNextRole(record.role),
+    isAdmin: Boolean(record.is_admin),
+    legalVersion: record.legal_version || LEGAL_VERSION,
+    termsAcceptedAt: record.terms_accepted_at,
+    privacyAcceptedAt: record.privacy_accepted_at,
+    locationTrackingPreference: record.location_tracking_preference || "unset",
+    locationTrackingUpdatedAt: record.location_tracking_updated_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    lastLoginAt: record.last_login_at
+  };
+}
+
+function profileToBrowserSupabaseRecord(user) {
+  return {
+    id: user.id,
+    email: user.email,
+    display_name: user.displayName,
+    role: user.role,
+    region: user.region,
+    verification_status: user.verificationStatus,
+    points: user.points,
+    readiness_score: user.readinessScore,
+    is_admin: user.isAdmin,
+    legal_version: user.legalVersion || LEGAL_VERSION,
+    terms_accepted_at: user.termsAcceptedAt,
+    privacy_accepted_at: user.privacyAcceptedAt,
+    location_tracking_preference: user.locationTrackingPreference || "unset",
+    location_tracking_updated_at: user.locationTrackingUpdatedAt,
+    last_login_at: user.lastLoginAt
+  };
+}
+
+async function ensureSupabaseBrowserScript() {
+  if (window.supabase?.createClient) {
+    return;
+  }
+
+  await new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-supabase-browser="true"]');
+    if (existing) {
+      existing.addEventListener("load", () => resolve(), { once: true });
+      existing.addEventListener("error", () => reject(new Error("Unable to load Supabase.")), {
+        once: true
+      });
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = STATIC_SUPABASE_SCRIPT;
+    script.dataset.supabaseBrowser = "true";
+    script.onload = () => resolve();
+    script.onerror = () => reject(new Error("Unable to load Supabase."));
+    document.head.appendChild(script);
+  });
+}
+
+async function getBrowserSupabaseClient() {
+  if (browserSupabaseClient) {
+    return browserSupabaseClient;
+  }
+
+  if (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseAnonKey) {
+    throw new Error(
+      "GitHub Pages auth needs ./config.js with SUPABASE_URL and SUPABASE_ANON_KEY."
+    );
+  }
+
+  await ensureSupabaseBrowserScript();
+  browserSupabaseClient = window.supabase.createClient(
+    runtimeConfig.supabaseUrl,
+    runtimeConfig.supabaseAnonKey,
+    {
+      auth: {
+        persistSession: true,
+        autoRefreshToken: true,
+        detectSessionInUrl: true
+      }
+    }
+  );
+  return browserSupabaseClient;
+}
+
+async function detectAuthTransport() {
+  try {
+    const response = await fetch("/api/auth/session", {
+      method: "GET",
+      credentials: "same-origin",
+      headers: {
+        Accept: "application/json"
+      }
+    });
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      return "server";
+    }
+  } catch (error) {
+    console.warn("Falling back to browser auth mode.", error);
+  }
+
+  if (runtimeConfig.supabaseUrl && runtimeConfig.supabaseAnonKey) {
+    return "browser";
+  }
+
+  if (window.location.hostname.endsWith("github.io") || window.location.protocol === "file:") {
+    return "browser";
+  }
+
+  return "server";
+}
+
+async function getAuthTransport() {
+  if (!authTransportPromise) {
+    authTransportPromise = detectAuthTransport();
+  }
+
+  return authTransportPromise;
+}
+
+async function getPostAuthLandingPage(user) {
+  const transport = await getAuthTransport();
+  if (transport === "browser") {
+    return "dashboard.html";
+  }
+
+  return user?.isAdmin ? "admin.html" : "dashboard.html";
+}
+
 async function requestJson(url, options = {}) {
+  if (isApiRequest(url) && (await getAuthTransport()) === "browser") {
+    return requestBrowserJson(url, options);
+  }
+
   const response = await fetch(url, {
     credentials: "same-origin",
     headers: {
@@ -213,6 +429,305 @@ async function requestJson(url, options = {}) {
   }
 
   return payload;
+}
+
+async function fetchBrowserProfile(client, authUser) {
+  const { data, error } = await client.from("profiles").select("*").eq("id", authUser.id).maybeSingle();
+  if (error) {
+    throw new Error(error.message || "Unable to load your profile.");
+  }
+
+  if (data) {
+    return mapBrowserSupabaseProfile(data);
+  }
+
+  const fallbackProfile = buildDefaultUserProfile({
+    id: authUser.id,
+    email: authUser.email,
+    displayName: authUser.user_metadata?.displayName || authUser.user_metadata?.name || "Guardian",
+    region: authUser.user_metadata?.region || "United States",
+    isAdmin: Boolean(authUser.app_metadata?.is_admin)
+  });
+
+  const insertPayload = {
+    ...profileToBrowserSupabaseRecord(fallbackProfile),
+    last_login_at: new Date().toISOString()
+  };
+  const insertResult = await client.from("profiles").upsert(insertPayload).select().single();
+  if (insertResult.error) {
+    throw new Error(insertResult.error.message || "Unable to create your profile.");
+  }
+
+  return mapBrowserSupabaseProfile(insertResult.data);
+}
+
+async function updateBrowserProfile(client, userId, updates) {
+  const { data, error } = await client.from("profiles").update(updates).eq("id", userId).select().single();
+  if (error) {
+    throw new Error(error.message || "Unable to update your profile.");
+  }
+
+  return mapBrowserSupabaseProfile(data);
+}
+
+async function getBrowserSessionPayload() {
+  const client = await getBrowserSupabaseClient();
+  const {
+    data: { session },
+    error
+  } = await client.auth.getSession();
+
+  if (error) {
+    throw new Error(error.message || "Unable to read your session.");
+  }
+
+  if (!session?.user) {
+    return {
+      authenticated: false,
+      provider: "supabase-browser"
+    };
+  }
+
+  const user = await fetchBrowserProfile(client, session.user);
+
+  return {
+    authenticated: true,
+    provider: "supabase-browser",
+    user
+  };
+}
+
+async function loginWithBrowserSupabase({ email, password }) {
+  const client = await getBrowserSupabaseClient();
+  const { data, error } = await client.auth.signInWithPassword({
+    email: String(email || "").trim(),
+    password: String(password || "")
+  });
+
+  if (error) {
+    throw new Error(error.message || "Invalid email or password.");
+  }
+
+  const authUser = data.user;
+  if (!authUser?.id) {
+    throw new Error("Supabase did not return a user record.");
+  }
+
+  await fetchBrowserProfile(client, authUser);
+  const user = await updateBrowserProfile(client, authUser.id, {
+    last_login_at: new Date().toISOString()
+  });
+
+  return {
+    ok: true,
+    user
+  };
+}
+
+async function registerWithBrowserSupabase(body) {
+  const client = await getBrowserSupabaseClient();
+  const email = String(body.email || "").trim().toLowerCase();
+  const displayName = String(body.displayName || "").trim();
+  const region = String(body.region || "").trim();
+  const password = String(body.password || "");
+  const legalAcceptance = buildLegalAcceptance({
+    acceptedTerms: body.acceptedTerms,
+    acceptedPrivacy: body.acceptedPrivacy,
+    locationTrackingPreference: body.locationTrackingPreference
+  });
+
+  const signUpResult = await client.auth.signUp({
+    email,
+    password,
+    options: {
+      data: {
+        displayName,
+        region
+      }
+    }
+  });
+
+  if (signUpResult.error) {
+    throw new Error(signUpResult.error.message || "Unable to create the account.");
+  }
+
+  let authUser = signUpResult.data.user;
+  let session = signUpResult.data.session;
+
+  if (!authUser?.id) {
+    throw new Error("Supabase did not return a user record.");
+  }
+
+  if (!session) {
+    const loginResult = await client.auth.signInWithPassword({
+      email,
+      password
+    });
+    if (loginResult.error) {
+      throw new Error(
+        loginResult.error.message ||
+          "Account created. Check your email confirmation settings before signing in."
+      );
+    }
+    authUser = loginResult.data.user;
+  }
+
+  const defaultProfile = buildDefaultUserProfile({
+    id: authUser.id,
+    email,
+    displayName,
+    region,
+    isAdmin: Boolean(authUser.app_metadata?.is_admin)
+  });
+  const upsertPayload = {
+    ...profileToBrowserSupabaseRecord({
+      ...defaultProfile,
+      legalVersion: legalAcceptance.legalVersion,
+      termsAcceptedAt: legalAcceptance.termsAcceptedAt,
+      privacyAcceptedAt: legalAcceptance.privacyAcceptedAt,
+      locationTrackingPreference: legalAcceptance.locationTrackingPreference,
+      locationTrackingUpdatedAt: legalAcceptance.locationTrackingUpdatedAt,
+      lastLoginAt: new Date().toISOString()
+    })
+  };
+  const upsertResult = await client.from("profiles").upsert(upsertPayload).select().single();
+  if (upsertResult.error) {
+    throw new Error(upsertResult.error.message || "Unable to save the account profile.");
+  }
+
+  return {
+    ok: true,
+    user: mapBrowserSupabaseProfile(upsertResult.data)
+  };
+}
+
+async function updateBrowserAccount(body) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const patch = {};
+  const authData = {};
+
+  if (body.displayName !== undefined) {
+    patch.display_name = String(body.displayName || "").trim();
+    authData.displayName = patch.display_name;
+  }
+
+  if (body.region !== undefined) {
+    patch.region = String(body.region || "").trim();
+    authData.region = patch.region;
+  }
+
+  if (body.locationTrackingPreference !== undefined) {
+    patch.location_tracking_preference = normalizeLocationPreference(body.locationTrackingPreference);
+    patch.location_tracking_updated_at =
+      patch.location_tracking_preference === "unset" ? null : new Date().toISOString();
+  }
+
+  if (body.acceptedTerms) {
+    patch.terms_accepted_at = new Date().toISOString();
+  }
+
+  if (body.acceptedPrivacy) {
+    patch.privacy_accepted_at = new Date().toISOString();
+  }
+
+  if (body.acceptedTerms || body.acceptedPrivacy) {
+    patch.legal_version = LEGAL_VERSION;
+  }
+
+  if (Object.keys(authData).length > 0) {
+    const { error } = await client.auth.updateUser({
+      data: authData
+    });
+    if (error) {
+      throw new Error(error.message || "Unable to update your account metadata.");
+    }
+  }
+
+  const user =
+    Object.keys(patch).length > 0
+      ? await updateBrowserProfile(client, sessionPayload.user.id, patch)
+      : sessionPayload.user;
+
+  return { user };
+}
+
+async function updateBrowserPassword(body) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const verification = await client.auth.signInWithPassword({
+    email: sessionPayload.user.email,
+    password: String(body.currentPassword || "")
+  });
+  if (verification.error) {
+    throw new Error(verification.error.message || "Current password is incorrect.");
+  }
+
+  const { error } = await client.auth.updateUser({
+    password: String(body.newPassword || "")
+  });
+  if (error) {
+    throw new Error(error.message || "Unable to update your password.");
+  }
+
+  return { ok: true };
+}
+
+async function requestBrowserJson(url, options = {}) {
+  const body = parseJsonBody(options.body);
+
+  if (url === "/api/auth/session") {
+    return getBrowserSessionPayload();
+  }
+
+  if (url === "/api/auth/login") {
+    return loginWithBrowserSupabase(body);
+  }
+
+  if (url === "/api/auth/register") {
+    return registerWithBrowserSupabase(body);
+  }
+
+  if (url === "/api/auth/logout") {
+    const client = await getBrowserSupabaseClient();
+    const { error } = await client.auth.signOut();
+    if (error) {
+      throw new Error(error.message || "Unable to sign out.");
+    }
+
+    return { ok: true };
+  }
+
+  if (url === "/api/account" && options.method === "GET") {
+    const session = await getBrowserSessionPayload();
+    if (!session.authenticated) {
+      throw new Error("You must be signed in.");
+    }
+
+    return { user: session.user };
+  }
+
+  if (url === "/api/account" && options.method === "PATCH") {
+    return updateBrowserAccount(body);
+  }
+
+  if (url === "/api/account/password" && options.method === "PATCH") {
+    return updateBrowserPassword(body);
+  }
+
+  if (url.startsWith("/api/admin/")) {
+    throw new Error("The admin console still requires the Node/Supabase server deployment.");
+  }
+
+  throw new Error("Request failed.");
 }
 
 function setFeedback(targetId, message, type = "info") {
@@ -285,7 +800,7 @@ async function handleSignOut() {
   } catch (error) {
     console.error(error);
   } finally {
-    window.location.href = "/index.html";
+    goToPage("index.html");
   }
 }
 
@@ -1250,10 +1765,21 @@ function initMapPage() {
 }
 
 async function initAuthPage() {
+  const authTransport = await getAuthTransport();
+  if (
+    authTransport === "browser" &&
+    (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseAnonKey)
+  ) {
+    const message =
+      "Static hosting detected. Add ./config.js with SUPABASE_URL and SUPABASE_ANON_KEY to enable sign in.";
+    setFeedback("auth-feedback", message, "error");
+    setFeedback("register-feedback", message, "error");
+  }
+
   try {
     const session = await requestJson("/api/auth/session");
     if (session.authenticated) {
-      window.location.href = session.user.isAdmin ? "/admin.html" : "/dashboard.html";
+      goToPage(await getPostAuthLandingPage(session.user));
       return;
     }
   } catch (error) {
@@ -1282,7 +1808,7 @@ async function initAuthPage() {
       });
 
       setFeedback("auth-feedback", "Signed in. Loading your dashboard...", "success");
-      window.location.href = payload.user.isAdmin ? "/admin.html" : "/dashboard.html";
+      goToPage(await getPostAuthLandingPage(payload.user));
     } catch (error) {
       setFeedback("auth-feedback", error.message, "error");
     }
@@ -1309,7 +1835,7 @@ async function initAuthPage() {
       });
 
       setFeedback("register-feedback", "Account created. Redirecting you now...", "success");
-      window.location.href = payload.user.isAdmin ? "/admin.html" : "/dashboard.html";
+      goToPage(await getPostAuthLandingPage(payload.user));
     } catch (error) {
       setFeedback("register-feedback", error.message, "error");
     }
@@ -1691,6 +2217,7 @@ async function initAdminPage() {
 async function initProtectedPage() {
   const session = await requestJson("/api/auth/session");
   sessionUser = session.user;
+  const authTransport = await getAuthTransport();
 
   updateSessionChrome();
   createNav();
@@ -1714,6 +2241,20 @@ async function initProtectedPage() {
   }
 
   if (currentPage === "admin") {
+    if (authTransport === "browser") {
+      const list = document.getElementById("admin-user-list");
+      const summary = document.getElementById("admin-summary");
+      if (summary) {
+        summary.innerHTML =
+          '<article class="stat-card"><p>Admin console</p><strong>Server-backed only</strong><span>Use the Node deployment for member administration.</span></article>';
+      }
+      if (list) {
+        list.innerHTML =
+          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Static hosting limitation</strong><span>GitHub Pages can sign users in, but bulk admin management still runs through the server APIs.</span></div></div></article>';
+      }
+      return;
+    }
+
     await initAdminPage();
   }
 }
@@ -1728,7 +2269,7 @@ async function init() {
     await initProtectedPage();
   } catch (error) {
     console.error(error);
-    window.location.href = "/index.html";
+    goToPage("index.html");
   }
 }
 
