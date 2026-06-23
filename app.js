@@ -14,6 +14,21 @@ const VERIFICATION_OPTIONS = [
   "Officer verification pending",
   "Officer path approved"
 ];
+const IDENTITY_STATUS_LABELS = {
+  draft: "Draft in progress",
+  submitted: "Submitted",
+  in_review: "In review",
+  changes_requested: "Changes requested",
+  approved: "Approved",
+  rejected: "Rejected"
+};
+const IDENTITY_REVIEW_STATUS_OPTIONS = ["in_review", "changes_requested", "approved", "rejected"];
+const ID_DOCUMENT_OPTIONS = [
+  { value: "drivers_license", label: "Driver's license" },
+  { value: "state_id", label: "State ID" },
+  { value: "passport", label: "Passport" },
+  { value: "other", label: "Other government ID" }
+];
 
 const seededProfile =
   typeof guardianProfile !== "undefined"
@@ -58,6 +73,16 @@ const STATIC_SUPABASE_SCRIPT = "https://cdn.jsdelivr.net/npm/@supabase/supabase-
 
 let sessionUser = null;
 let adminUsers = [];
+let questBoard = {
+  availableQuests: [],
+  assignments: [],
+  summary: {
+    activeCount: 0,
+    completedCount: 0,
+    totalXpEarned: 0,
+    claimableCount: 0
+  }
+};
 let mapState = {
   filter: "all",
   selectedType: null,
@@ -67,6 +92,8 @@ let liveMap = null;
 let liveMapLayers = [];
 let authTransportPromise = null;
 let browserSupabaseClient = null;
+let identityVerificationRecord = null;
+let adminIdentityRecords = [];
 
 function getRuntimeConfig() {
   const config = window.PREDGUARD_CONFIG || {};
@@ -214,6 +241,106 @@ function buildProfile(user) {
   };
 }
 
+function getRoleRank(role) {
+  const index = ROLE_OPTIONS.indexOf(role);
+  return index === -1 ? 0 : index;
+}
+
+function findMissionById(missionId) {
+  return missionsData.find((mission) => mission.id === missionId) || null;
+}
+
+function buildDefaultQuestBoard() {
+  return {
+    availableQuests: missionsData.map((mission) => ({
+      ...mission,
+      access: describeMissionAccess(mission, [])
+    })),
+    assignments: [],
+    summary: {
+      activeCount: 0,
+      completedCount: 0,
+      totalXpEarned: 0,
+      claimableCount: 0
+    }
+  };
+}
+
+function describeMissionAccess(mission, assignments = questBoard.assignments) {
+  const assignment = assignments.find((entry) => entry.missionId === mission.id) || null;
+  if (assignment) {
+    return {
+      claimable: false,
+      state: assignment.status,
+      reason:
+        assignment.status === "completed" ? "Completed and rewards already granted." : "Already claimed.",
+      assignmentId: assignment.id
+    };
+  }
+
+  if (getRoleRank(sessionUser?.role) < getRoleRank(mission.minimumRole || ROLE_OPTIONS[0])) {
+    return {
+      claimable: false,
+      state: "locked",
+      reason: `Requires ${mission.minimumRole}.`,
+      assignmentId: null
+    };
+  }
+
+  if ((sessionUser?.readinessScore || 0) < (mission.minReadiness || 0)) {
+    return {
+      claimable: false,
+      state: "locked",
+      reason: `Requires ${mission.minReadiness}% readiness.`,
+      assignmentId: null
+    };
+  }
+
+  return {
+    claimable: true,
+    state: "available",
+    reason: `Earn ${mission.xpReward} XP and ${mission.readinessReward}% readiness.`,
+    assignmentId: null
+  };
+}
+
+function normalizeQuestBoardPayload(payload) {
+  const assignments = Array.isArray(payload?.assignments)
+    ? payload.assignments
+        .map((assignment) => {
+          const mission = assignment.mission || findMissionById(assignment.missionId);
+          return mission ? { ...assignment, mission } : null;
+        })
+        .filter(Boolean)
+    : [];
+
+  const availableQuests = Array.isArray(payload?.availableQuests)
+    ? payload.availableQuests
+    : missionsData.map((mission) => ({
+        ...mission,
+        access: describeMissionAccess(mission, assignments)
+      }));
+
+  return {
+    availableQuests,
+    assignments,
+    summary: {
+      activeCount: payload?.summary?.activeCount ?? assignments.filter((item) => item.status === "active").length,
+      completedCount:
+        payload?.summary?.completedCount ??
+        assignments.filter((item) => item.status === "completed").length,
+      totalXpEarned:
+        payload?.summary?.totalXpEarned ??
+        assignments
+          .filter((item) => item.status === "completed")
+          .reduce((sum, item) => sum + (item.xpReward || 0), 0),
+      claimableCount:
+        payload?.summary?.claimableCount ??
+        availableQuests.filter((mission) => mission.access?.claimable).length
+    }
+  };
+}
+
 function getPageUrl(pageName) {
   return new URL(pageName, window.location.href).toString();
 }
@@ -265,6 +392,32 @@ function buildDefaultUserProfile({ id, email, displayName, region, isAdmin = fal
   };
 }
 
+function buildDefaultIdentityVerification(user = sessionUser) {
+  const now = new Date().toISOString();
+  return {
+    userId: user?.id || "",
+    legalName: user?.displayName || "",
+    phoneNumber: "",
+    city: "",
+    state: user?.region || "",
+    birthDate: "",
+    idDocumentType: "unset",
+    idDocumentLast4: "",
+    officerPathRequested: false,
+    officerDepartment: "",
+    officerWorkEmail: "",
+    backgroundConsentAt: null,
+    trainingAcknowledgedAt: null,
+    codeOfConductAcceptedAt: null,
+    status: "draft",
+    reviewNotes: "",
+    submittedAt: null,
+    reviewedAt: null,
+    createdAt: now,
+    updatedAt: now
+  };
+}
+
 function mapBrowserSupabaseProfile(record) {
   if (!record) {
     return null;
@@ -309,6 +462,58 @@ function profileToBrowserSupabaseRecord(user) {
     location_tracking_preference: user.locationTrackingPreference || "unset",
     location_tracking_updated_at: user.locationTrackingUpdatedAt,
     last_login_at: user.lastLoginAt
+  };
+}
+
+function mapBrowserIdentityVerification(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    userId: record.user_id,
+    legalName: record.legal_name || "",
+    phoneNumber: record.phone_number || "",
+    city: record.city || "",
+    state: record.state || "",
+    birthDate: record.birth_date || "",
+    idDocumentType: record.id_document_type || "unset",
+    idDocumentLast4: record.id_document_last4 || "",
+    officerPathRequested: Boolean(record.officer_path_requested),
+    officerDepartment: record.officer_department || "",
+    officerWorkEmail: record.officer_work_email || "",
+    backgroundConsentAt: record.background_consent_at,
+    trainingAcknowledgedAt: record.training_acknowledged_at,
+    codeOfConductAcceptedAt: record.code_of_conduct_accepted_at,
+    status: record.status || "draft",
+    reviewNotes: record.review_notes || "",
+    submittedAt: record.submitted_at,
+    reviewedAt: record.reviewed_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function identityVerificationToBrowserRecord(record) {
+  return {
+    user_id: record.userId,
+    legal_name: record.legalName || null,
+    phone_number: record.phoneNumber || null,
+    city: record.city || null,
+    state: record.state || null,
+    birth_date: record.birthDate || null,
+    id_document_type: record.idDocumentType || "unset",
+    id_document_last4: record.idDocumentLast4 || null,
+    officer_path_requested: Boolean(record.officerPathRequested),
+    officer_department: record.officerDepartment || null,
+    officer_work_email: record.officerWorkEmail || null,
+    background_consent_at: record.backgroundConsentAt || null,
+    training_acknowledged_at: record.trainingAcknowledgedAt || null,
+    code_of_conduct_accepted_at: record.codeOfConductAcceptedAt || null,
+    status: record.status || "draft",
+    review_notes: record.reviewNotes || "",
+    submitted_at: record.submittedAt || null,
+    reviewed_at: record.reviewedAt || null
   };
 }
 
@@ -681,6 +886,335 @@ async function updateBrowserPassword(body) {
   return { ok: true };
 }
 
+async function getBrowserIdentityVerification() {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .select("*")
+    .eq("user_id", sessionPayload.user.id)
+    .maybeSingle();
+
+  if (error) {
+    throw new Error(error.message || "Unable to load identity verification.");
+  }
+
+  if (data) {
+    return { verification: mapBrowserIdentityVerification(data) };
+  }
+
+  const draft = buildDefaultIdentityVerification(sessionPayload.user);
+  const insertResult = await client
+    .from("identity_verifications")
+    .upsert(identityVerificationToBrowserRecord(draft))
+    .select()
+    .single();
+
+  if (insertResult.error) {
+    throw new Error(insertResult.error.message || "Unable to create identity verification.");
+  }
+
+  return { verification: mapBrowserIdentityVerification(insertResult.data) };
+}
+
+async function updateBrowserIdentityVerification(body) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const existingPayload = await getBrowserIdentityVerification();
+  const existing = existingPayload.verification;
+  const now = new Date().toISOString();
+  const patch = {};
+
+  if (body.legalName !== undefined) {
+    patch.legal_name = String(body.legalName || "").trim();
+  }
+  if (body.phoneNumber !== undefined) {
+    patch.phone_number = String(body.phoneNumber || "").trim();
+  }
+  if (body.city !== undefined) {
+    patch.city = String(body.city || "").trim();
+  }
+  if (body.state !== undefined) {
+    patch.state = String(body.state || "").trim();
+  }
+  if (body.birthDate !== undefined) {
+    patch.birth_date = String(body.birthDate || "").trim();
+  }
+  if (body.idDocumentType !== undefined) {
+    patch.id_document_type = String(body.idDocumentType || "unset").trim().toLowerCase();
+  }
+  if (body.idDocumentLast4 !== undefined) {
+    patch.id_document_last4 = String(body.idDocumentLast4 || "").replace(/\D+/gu, "").slice(-4);
+  }
+  if (body.officerPathRequested !== undefined) {
+    patch.officer_path_requested = Boolean(body.officerPathRequested);
+  }
+  if (body.officerDepartment !== undefined) {
+    patch.officer_department = String(body.officerDepartment || "").trim();
+  }
+  if (body.officerWorkEmail !== undefined) {
+    patch.officer_work_email = String(body.officerWorkEmail || "").trim().toLowerCase();
+  }
+  if (body.backgroundConsent !== undefined) {
+    patch.background_consent_at = body.backgroundConsent ? now : null;
+  }
+  if (body.trainingAcknowledged !== undefined) {
+    patch.training_acknowledged_at = body.trainingAcknowledged ? now : null;
+  }
+  if (body.codeOfConductAccepted !== undefined) {
+    patch.code_of_conduct_accepted_at = body.codeOfConductAccepted ? now : null;
+  }
+
+  if (existing.status === "changes_requested" || existing.status === "rejected") {
+    patch.status = "draft";
+  }
+
+  const { data, error } = await client
+    .from("identity_verifications")
+    .update(patch)
+    .eq("user_id", sessionPayload.user.id)
+    .select()
+    .single();
+
+  if (error) {
+    throw new Error(error.message || "Unable to update identity verification.");
+  }
+
+  return { verification: mapBrowserIdentityVerification(data) };
+}
+
+function validateIdentityVerificationForSubmit(record) {
+  if (!record.legalName) {
+    throw new Error("Enter your legal name before submitting identity verification.");
+  }
+  if (!record.phoneNumber) {
+    throw new Error("A phone number is required before submitting identity verification.");
+  }
+  if (!record.city || !record.state) {
+    throw new Error("City and state are required before submitting identity verification.");
+  }
+  if (!record.birthDate) {
+    throw new Error("Your date of birth is required before submitting identity verification.");
+  }
+  if (record.idDocumentType === "unset") {
+    throw new Error("Choose an ID document type before submitting identity verification.");
+  }
+  if (!/^\d{4}$/u.test(record.idDocumentLast4 || "")) {
+    throw new Error("Enter the last 4 digits of your ID document before submitting.");
+  }
+  if (!record.backgroundConsentAt || !record.trainingAcknowledgedAt || !record.codeOfConductAcceptedAt) {
+    throw new Error("Consent and training acknowledgments are required before submitting.");
+  }
+  if (record.officerPathRequested && (!record.officerDepartment || !record.officerWorkEmail)) {
+    throw new Error("Officer-path requests require a department and work email.");
+  }
+}
+
+async function submitBrowserIdentityVerification() {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const current = (await getBrowserIdentityVerification()).verification;
+  validateIdentityVerificationForSubmit(current);
+
+  const now = new Date().toISOString();
+  const { data: verificationData, error: verificationError } = await client
+    .from("identity_verifications")
+    .update({
+      status: "in_review",
+      submitted_at: now,
+      reviewed_at: null
+    })
+    .eq("user_id", sessionPayload.user.id)
+    .select()
+    .single();
+
+  if (verificationError) {
+    throw new Error(verificationError.message || "Unable to submit identity verification.");
+  }
+
+  const verificationStatus = current.officerPathRequested
+    ? "Officer verification pending"
+    : "Moderator review required";
+  const user = await updateBrowserProfile(client, sessionPayload.user.id, {
+    verification_status: verificationStatus
+  });
+
+  return {
+    user,
+    verification: mapBrowserIdentityVerification(verificationData)
+  };
+}
+
+async function requestBrowserPasswordReset(body) {
+  const client = await getBrowserSupabaseClient();
+  const redirectTo = getPageUrl("reset-password.html");
+  const { error } = await client.auth.resetPasswordForEmail(String(body.email || "").trim(), {
+    redirectTo
+  });
+
+  if (error) {
+    throw new Error(error.message || "Unable to send a password reset email.");
+  }
+
+  return {
+    ok: true,
+    message: "If an account exists for that email, a reset link has been sent."
+  };
+}
+
+async function listBrowserUserQuests(client, userId) {
+  const { data, error } = await client
+    .from("user_quests")
+    .select("*")
+    .eq("user_id", userId)
+    .order("updated_at", { ascending: false });
+
+  if (error) {
+    throw new Error(error.message || "Unable to load your quests.");
+  }
+
+  return data.map((record) => ({
+    id: record.id,
+    userId: record.user_id,
+    missionId: record.mission_id,
+    status: record.status,
+    progressPercent: record.progress_percent,
+    notes: record.notes || "",
+    xpReward: record.xp_reward,
+    readinessReward: record.readiness_reward,
+    startedAt: record.started_at,
+    completedAt: record.completed_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  }));
+}
+
+async function buildBrowserQuestBoard(user) {
+  const client = await getBrowserSupabaseClient();
+  const assignments = await listBrowserUserQuests(client, user.id);
+  return normalizeQuestBoardPayload({
+    assignments,
+    availableQuests: missionsData.map((mission) => ({
+      ...mission,
+      access: describeMissionAccess(mission, assignments)
+    }))
+  });
+}
+
+async function claimBrowserQuest(body) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const mission = findMissionById(String(body.missionId || "").trim());
+  if (!mission) {
+    throw new Error("Quest not found.");
+  }
+
+  const assignments = await listBrowserUserQuests(client, sessionPayload.user.id);
+  const access = describeMissionAccess(mission, assignments);
+  if (!access.claimable) {
+    throw new Error(access.reason);
+  }
+
+  const { error } = await client.from("user_quests").insert({
+    user_id: sessionPayload.user.id,
+    mission_id: mission.id,
+    status: "active",
+    progress_percent: 0,
+    notes: "",
+    xp_reward: mission.xpReward,
+    readiness_reward: mission.readinessReward
+  });
+  if (error) {
+    throw new Error(error.message || "Unable to claim the quest.");
+  }
+
+  return {
+    user: sessionPayload.user,
+    questBoard: await buildBrowserQuestBoard(sessionPayload.user)
+  };
+}
+
+async function updateBrowserQuest(body, questId) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+
+  const assignments = await listBrowserUserQuests(client, sessionPayload.user.id);
+  const existingQuest = assignments.find((entry) => entry.id === questId);
+  if (!existingQuest) {
+    throw new Error("Quest not found.");
+  }
+
+  if (existingQuest.status === "completed") {
+    throw new Error("Completed quests are read-only.");
+  }
+
+  const patch = {};
+  if (body.notes !== undefined) {
+    patch.notes = String(body.notes || "").trim().slice(0, 2000);
+  }
+
+  if (body.progressPercent !== undefined) {
+    const progress = Number(body.progressPercent);
+    if (!Number.isFinite(progress)) {
+      throw new Error("Progress must be a number.");
+    }
+    patch.progress_percent = Math.max(0, Math.min(100, Math.round(progress)));
+  }
+
+  if (body.status !== undefined) {
+    if (body.status !== "active" && body.status !== "completed") {
+      throw new Error("Quest status must be active or completed.");
+    }
+    patch.status = body.status;
+  }
+
+  const isCompleting = patch.status === "completed";
+  if (isCompleting) {
+    patch.progress_percent = 100;
+    patch.completed_at = new Date().toISOString();
+  }
+
+  const { error } = await client.from("user_quests").update(patch).eq("id", questId);
+  if (error) {
+    throw new Error(error.message || "Unable to update the quest.");
+  }
+
+  let user = sessionPayload.user;
+  if (isCompleting) {
+    user = await updateBrowserProfile(client, sessionPayload.user.id, {
+      points: (sessionPayload.user.points || 0) + existingQuest.xpReward,
+      readiness_score: Math.min(
+        100,
+        (sessionPayload.user.readinessScore || 0) + existingQuest.readinessReward
+      )
+    });
+  }
+
+  return {
+    user,
+    questBoard: await buildBrowserQuestBoard(user)
+  };
+}
+
 async function requestBrowserJson(url, options = {}) {
   const body = parseJsonBody(options.body);
 
@@ -694,6 +1228,10 @@ async function requestBrowserJson(url, options = {}) {
 
   if (url === "/api/auth/register") {
     return registerWithBrowserSupabase(body);
+  }
+
+  if (url === "/api/auth/forgot-password") {
+    return requestBrowserPasswordReset(body);
   }
 
   if (url === "/api/auth/logout") {
@@ -721,6 +1259,35 @@ async function requestBrowserJson(url, options = {}) {
 
   if (url === "/api/account/password" && options.method === "PATCH") {
     return updateBrowserPassword(body);
+  }
+
+  if (url === "/api/identity" && options.method === "GET") {
+    return getBrowserIdentityVerification();
+  }
+
+  if (url === "/api/identity" && options.method === "PATCH") {
+    return updateBrowserIdentityVerification(body);
+  }
+
+  if (url === "/api/identity/submit" && options.method === "POST") {
+    return submitBrowserIdentityVerification();
+  }
+
+  if (url === "/api/quests" && options.method === "GET") {
+    const session = await getBrowserSessionPayload();
+    if (!session.authenticated) {
+      throw new Error("You must be signed in.");
+    }
+
+    return buildBrowserQuestBoard(session.user);
+  }
+
+  if (url === "/api/quests" && options.method === "POST") {
+    return claimBrowserQuest(body);
+  }
+
+  if (url.startsWith("/api/quests/") && options.method === "PATCH") {
+    return updateBrowserQuest(body, url.split("/").pop());
   }
 
   if (url.startsWith("/api/admin/")) {
@@ -911,44 +1478,371 @@ function renderVerificationTimeline() {
     return;
   }
 
+  const activeStatus = identityVerificationRecord?.status || "draft";
+  const officerRequested = Boolean(identityVerificationRecord?.officerPathRequested);
+
   timeline.innerHTML = "";
 
-  verificationStepsData.forEach((step) => {
+  verificationStepsData.forEach((step, index) => {
+    let stepState = "pending";
+    if (index === 0 && sessionUser) {
+      stepState = "complete";
+    } else if (index === 1 && identityVerificationRecord?.submittedAt) {
+      stepState = activeStatus === "approved" ? "complete" : "current";
+    } else if (
+      index === 2 &&
+      ["submitted", "in_review", "changes_requested", "approved", "rejected"].includes(activeStatus)
+    ) {
+      stepState = activeStatus === "approved" ? "complete" : "current";
+    }
+
+    if (index === 3 && activeStatus === "approved") {
+      stepState = "complete";
+    }
+
+    const detailSuffix =
+      index === 2 && officerRequested
+        ? " Officer-path review requires department validation before approval."
+        : "";
     const row = document.createElement("div");
-    row.className = "timeline-step";
+    row.className = `timeline-step ${stepState}`;
     row.innerHTML = `
       <div class="timeline-marker"></div>
       <div class="timeline-copy">
         <strong>${step.title}</strong>
-        <span>${step.detail}</span>
+        <span>${step.detail}${detailSuffix}</span>
       </div>
     `;
     timeline.appendChild(row);
   });
 }
 
+function renderIdentityStatusCards() {
+  const container = document.getElementById("identity-status-grid");
+  if (!container || !identityVerificationRecord || !sessionUser) {
+    return;
+  }
+
+  const submittedLabel = identityVerificationRecord.submittedAt
+    ? new Date(identityVerificationRecord.submittedAt).toLocaleString()
+    : "Not submitted";
+  const reviewedLabel = identityVerificationRecord.reviewedAt
+    ? new Date(identityVerificationRecord.reviewedAt).toLocaleString()
+    : "Waiting for review";
+
+  container.innerHTML = `
+    <article class="mini-stat">
+      <p>Verification state</p>
+      <strong>${IDENTITY_STATUS_LABELS[identityVerificationRecord.status] || "Draft in progress"}</strong>
+      <span>${sessionUser.verificationStatus}</span>
+    </article>
+    <article class="mini-stat">
+      <p>Submission</p>
+      <strong>${submittedLabel}</strong>
+      <span>${identityVerificationRecord.officerPathRequested ? "Officer path requested" : "Standard guardian path"}</span>
+    </article>
+    <article class="mini-stat">
+      <p>Review</p>
+      <strong>${reviewedLabel}</strong>
+      <span>${identityVerificationRecord.reviewNotes || "No reviewer notes yet."}</span>
+    </article>
+  `;
+}
+
+function renderIdentityProfileCard() {
+  const card = document.getElementById("profile-card");
+  if (!card || !sessionUser || !identityVerificationRecord) {
+    return;
+  }
+
+  card.innerHTML = `
+    <div>
+      <p class="profile-label">Display name</p>
+      <strong>${escapeHtml(sessionUser.displayName)}</strong>
+    </div>
+    <div>
+      <p class="profile-label">Current role</p>
+      <strong>${escapeHtml(sessionUser.role)}</strong>
+    </div>
+    <div>
+      <p class="profile-label">Verification label</p>
+      <strong>${escapeHtml(sessionUser.verificationStatus)}</strong>
+    </div>
+    <div>
+      <p class="profile-label">Requested track</p>
+      <strong>${identityVerificationRecord.officerPathRequested ? "Officer / LE Partner" : "Guardian progression"}</strong>
+    </div>
+    <div>
+      <p class="profile-label">Region</p>
+      <strong>${escapeHtml(identityVerificationRecord.state || sessionUser.region)}</strong>
+    </div>
+    <div>
+      <p class="profile-label">Reviewer notes</p>
+      <strong>${escapeHtml(identityVerificationRecord.reviewNotes || "No notes yet")}</strong>
+    </div>
+  `;
+}
+
+function populateIdentityForm(form) {
+  if (!form || !identityVerificationRecord) {
+    return;
+  }
+
+  form.elements.legalName.value = identityVerificationRecord.legalName || "";
+  form.elements.phoneNumber.value = identityVerificationRecord.phoneNumber || "";
+  form.elements.city.value = identityVerificationRecord.city || "";
+  form.elements.state.value = identityVerificationRecord.state || sessionUser?.region || "";
+  form.elements.birthDate.value = identityVerificationRecord.birthDate || "";
+  form.elements.idDocumentType.value = identityVerificationRecord.idDocumentType || "unset";
+  form.elements.idDocumentLast4.value = identityVerificationRecord.idDocumentLast4 || "";
+  form.elements.officerPathRequested.checked = Boolean(identityVerificationRecord.officerPathRequested);
+  form.elements.officerDepartment.value = identityVerificationRecord.officerDepartment || "";
+  form.elements.officerWorkEmail.value = identityVerificationRecord.officerWorkEmail || "";
+  form.elements.backgroundConsent.checked = Boolean(identityVerificationRecord.backgroundConsentAt);
+  form.elements.trainingAcknowledged.checked = Boolean(identityVerificationRecord.trainingAcknowledgedAt);
+  form.elements.codeOfConductAccepted.checked = Boolean(identityVerificationRecord.codeOfConductAcceptedAt);
+}
+
+function renderQuestSummary() {
+  const summary = document.getElementById("quest-summary");
+  if (!summary) {
+    return;
+  }
+
+  summary.innerHTML = `
+    <article class="mini-stat">
+      <p>Active quests</p>
+      <strong>${questBoard.summary.activeCount}</strong>
+      <span>Assignments currently in progress</span>
+    </article>
+    <article class="mini-stat">
+      <p>Completed</p>
+      <strong>${questBoard.summary.completedCount}</strong>
+      <span>Finished with rewards applied</span>
+    </article>
+    <article class="mini-stat">
+      <p>Claimable now</p>
+      <strong>${questBoard.summary.claimableCount}</strong>
+      <span>Unlocked by your current role and readiness</span>
+    </article>
+    <article class="mini-stat">
+      <p>Quest XP earned</p>
+      <strong>${questBoard.summary.totalXpEarned}</strong>
+      <span>Total rewards from completed quests</span>
+    </article>
+  `;
+}
+
+function buildMissionBrief(mission, access) {
+  const steps = Array.isArray(mission.steps)
+    ? `<ol class="quest-step-list">${mission.steps
+        .map((step) => `<li>${escapeHtml(step)}</li>`)
+        .join("")}</ol>`
+    : "";
+
+  return `
+    <strong>${escapeHtml(mission.title)}</strong><br />
+    Access: ${escapeHtml(mission.risk)}<br />
+    Unlock: ${escapeHtml(access.reason)}<br />
+    Rewards: ${mission.xpReward} XP and ${mission.readinessReward}% readiness<br />
+    Protocol: ${escapeHtml(mission.protocol)}<br />
+    ${steps}
+  `;
+}
+
+function updateMissionPreview(message) {
+  const missionPreview = document.getElementById("mission-preview");
+  if (missionPreview) {
+    missionPreview.innerHTML = message;
+  }
+}
+
+async function handleQuestClaim(missionId) {
+  updateMissionPreview("Claiming quest...");
+
+  try {
+    const payload = await requestJson("/api/quests", {
+      method: "POST",
+      body: JSON.stringify({ missionId })
+    });
+
+    if (payload.user) {
+      sessionUser = payload.user;
+    }
+    questBoard = normalizeQuestBoardPayload(payload.questBoard);
+    refreshQuestViews();
+    updateMissionPreview("Quest claimed. Track your progress in My quests.");
+  } catch (error) {
+    updateMissionPreview(escapeHtml(error.message));
+  }
+}
+
+async function handleQuestSave(questId, form, shouldComplete = false) {
+  const progress = Number(form.elements.progressPercent.value);
+  const notes = form.elements.notes.value;
+
+  try {
+    const payload = await requestJson(`/api/quests/${questId}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        progressPercent: shouldComplete ? 100 : progress,
+        notes,
+        status: shouldComplete ? "completed" : "active"
+      })
+    });
+
+    if (payload.user) {
+      sessionUser = payload.user;
+    }
+    questBoard = normalizeQuestBoardPayload(payload.questBoard);
+    refreshQuestViews();
+    updateMissionPreview(
+      shouldComplete
+        ? "Quest completed. Rewards have been added to your profile."
+        : "Quest progress saved."
+    );
+  } catch (error) {
+    const feedback = form.querySelector(".form-feedback");
+    if (feedback) {
+      feedback.textContent = error.message;
+      feedback.className = "form-feedback error";
+    }
+  }
+}
+
+function renderMyQuests() {
+  const list = document.getElementById("my-quest-list");
+  if (!list) {
+    return;
+  }
+
+  if (!questBoard.assignments.length) {
+    list.innerHTML =
+      '<article class="mission-card"><h4>No quests claimed yet</h4><p class="mission-description">Claim a quest from the board to start tracking notes, progress, and rewards.</p></article>';
+    return;
+  }
+
+  list.innerHTML = "";
+
+  questBoard.assignments.forEach((assignment) => {
+    const mission = assignment.mission;
+    const card = document.createElement("article");
+    card.className = "mission-card quest-progress-card";
+    const isCompleted = assignment.status === "completed";
+    card.innerHTML = `
+      <div class="mission-topline">
+        <span class="mission-type">${escapeHtml(mission.type.replace("realworld", "real-world"))}</span>
+        <span class="mission-risk">${isCompleted ? "Completed" : "Active quest"}</span>
+      </div>
+      <h4>${escapeHtml(mission.title)}</h4>
+      <p class="mission-description">${escapeHtml(mission.description)}</p>
+      <div class="quest-progress-meta">
+        <span>Reward: ${assignment.xpReward} XP</span>
+        <span>Readiness: +${assignment.readinessReward}%</span>
+      </div>
+      <form class="quest-progress-form">
+        <label>
+          Progress
+          <input name="progressPercent" type="range" min="0" max="100" step="5" value="${assignment.progressPercent}" ${
+            isCompleted ? "disabled" : ""
+          } />
+        </label>
+        <div class="quest-progress-meter">
+          <span style="width: ${assignment.progressPercent}%"></span>
+        </div>
+        <div class="quest-progress-value">${assignment.progressPercent}% complete</div>
+        <label>
+          Field notes
+          <textarea name="notes" rows="4" ${isCompleted ? "disabled" : ""}>${escapeHtml(
+            assignment.notes || ""
+          )}</textarea>
+        </label>
+        <div class="mission-footer">
+          <div class="required-roles"><span>${escapeHtml(mission.minimumRole)}</span></div>
+          <div class="quest-actions">
+            ${
+              isCompleted
+                ? `<button class="secondary-button" type="button" disabled>Rewards applied</button>`
+                : `<button class="secondary-button" data-action="save" type="submit">Save progress</button>
+                   <button class="primary-button" data-action="complete" type="button">Complete quest</button>`
+            }
+          </div>
+        </div>
+        <div class="form-feedback ${isCompleted ? "success" : "info"}">${
+          isCompleted ? "Quest completed." : "Update progress and notes as you work."
+        }</div>
+      </form>
+    `;
+
+    const form = card.querySelector(".quest-progress-form");
+    const slider = form.querySelector('input[name="progressPercent"]');
+    const value = card.querySelector(".quest-progress-value");
+    const meter = card.querySelector(".quest-progress-meter span");
+
+    if (slider && value && meter) {
+      slider.addEventListener("input", () => {
+        value.textContent = `${slider.value}% complete`;
+        meter.style.width = `${slider.value}%`;
+      });
+    }
+
+    if (!isCompleted) {
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        await handleQuestSave(assignment.id, form, false);
+      });
+
+      form.querySelector('[data-action="complete"]').addEventListener("click", async () => {
+        slider.value = "100";
+        value.textContent = "100% complete";
+        meter.style.width = "100%";
+        await handleQuestSave(assignment.id, form, true);
+      });
+    }
+
+    list.appendChild(card);
+  });
+}
+
 function renderMissions(filter = "all") {
   const missionList = document.getElementById("mission-list");
-  const missionTemplate = document.getElementById("mission-template");
-  const missionPreview = document.getElementById("mission-preview");
-
-  if (!missionList || !missionTemplate) {
+  if (!missionList) {
     return;
   }
 
   missionList.innerHTML = "";
 
-  missionsData
+  questBoard.availableQuests
     .filter((mission) => filter === "all" || mission.type === filter)
     .forEach((mission) => {
-      const node = missionTemplate.content.firstElementChild.cloneNode(true);
-      node.querySelector(".mission-type").textContent = mission.type.replace("realworld", "real-world");
-      node.querySelector(".mission-risk").textContent = mission.risk;
-      node.querySelector("h4").textContent = mission.title;
-      node.querySelector(".mission-description").textContent = mission.description;
-      node.querySelector(
-        ".mission-meta"
-      ).innerHTML = `Location: ${mission.location}<br />Window: ${mission.schedule}<br />Protocol: ${mission.protocol}`;
+      const access = mission.access || describeMissionAccess(mission);
+      const node = document.createElement("article");
+      node.className = "mission-card";
+      node.innerHTML = `
+        <div class="mission-topline">
+          <span class="mission-type">${escapeHtml(mission.type.replace("realworld", "real-world"))}</span>
+          <span class="mission-risk">${escapeHtml(mission.risk)}</span>
+        </div>
+        <h4>${escapeHtml(mission.title)}</h4>
+        <p class="mission-description">${escapeHtml(mission.description)}</p>
+        <div class="mission-meta">
+          Location: ${escapeHtml(mission.location)}<br />
+          Window: ${escapeHtml(mission.schedule)}<br />
+          Protocol: ${escapeHtml(mission.protocol)}<br />
+          Minimum role: ${escapeHtml(mission.minimumRole)}<br />
+          Rewards: ${mission.xpReward} XP and ${mission.readinessReward}% readiness
+        </div>
+        <div class="mission-footer">
+          <div class="required-roles"></div>
+          <div class="quest-actions">
+            <button class="secondary-button mission-button" type="button">View brief</button>
+            <button class="primary-button mission-claim-button" type="button" ${
+              access.claimable ? "" : "disabled"
+            }>${access.claimable ? "Claim quest" : access.state === "completed" ? "Completed" : access.state === "active" ? "In progress" : "Locked"}</button>
+          </div>
+        </div>
+        <div class="quest-status-note">${escapeHtml(access.reason)}</div>
+      `;
 
       const roles = node.querySelector(".required-roles");
       mission.roles.forEach((role) => {
@@ -958,13 +1852,75 @@ function renderMissions(filter = "all") {
       });
 
       node.querySelector(".mission-button").addEventListener("click", () => {
-        if (missionPreview) {
-          missionPreview.textContent = `${mission.title}: Access requires ${mission.risk}. Brief includes role assignments, safety checklist, and evidence handoff steps.`;
-        }
+        updateMissionPreview(buildMissionBrief(mission, access));
+      });
+
+      const claimButton = node.querySelector(".mission-claim-button");
+      claimButton.addEventListener("click", async () => {
+        await handleQuestClaim(mission.id);
       });
 
       missionList.appendChild(node);
     });
+}
+
+function renderDashboardQuestPanel() {
+  const panel = document.getElementById("dashboard-quest-panel");
+  if (!panel) {
+    return;
+  }
+
+  const activeAssignments = questBoard.assignments.filter((assignment) => assignment.status === "active");
+  panel.innerHTML = `
+    <div class="section-heading">
+      <div>
+        <p class="eyebrow">Quest system</p>
+        <h3>Your live board</h3>
+      </div>
+      <a class="secondary-button compact-button" href="./missions.html">Open quests</a>
+    </div>
+    <div class="dashboard-quest-stack">
+      <div class="quest-dashboard-stat">
+        <strong>${questBoard.summary.activeCount}</strong>
+        <span>active quests</span>
+      </div>
+      <div class="quest-dashboard-stat">
+        <strong>${questBoard.summary.claimableCount}</strong>
+        <span>ready to claim</span>
+      </div>
+      <div class="quest-dashboard-stat">
+        <strong>${questBoard.summary.totalXpEarned}</strong>
+        <span>quest XP earned</span>
+      </div>
+    </div>
+    <div class="dashboard-quest-list">
+      ${
+        activeAssignments.length
+          ? activeAssignments
+              .slice(0, 2)
+              .map(
+                (assignment) => `
+                  <article class="dashboard-quest-card">
+                    <strong>${escapeHtml(assignment.mission.title)}</strong>
+                    <span>${assignment.progressPercent}% complete</span>
+                  </article>
+                `
+              )
+              .join("")
+          : '<article class="dashboard-quest-card"><strong>No active quests</strong><span>Claim a quest from the mission board to start earning rewards.</span></article>'
+      }
+    </div>
+  `;
+}
+
+function refreshQuestViews() {
+  updateSessionChrome();
+  renderReadiness();
+  renderProfileCard();
+  renderQuestSummary();
+  renderMyQuests();
+  renderMissions(document.querySelector("[data-filter].active")?.dataset.filter || "all");
+  renderDashboardQuestPanel();
 }
 
 function wireMissionFilters() {
@@ -1790,6 +2746,7 @@ async function initAuthPage() {
 
   const loginForm = document.getElementById("login-form");
   const registerForm = document.getElementById("register-form");
+  const forgotForm = document.getElementById("forgot-password-form");
   populateStateSelect(document.getElementById("register-region"));
 
   loginForm?.addEventListener("submit", async (event) => {
@@ -1838,6 +2795,170 @@ async function initAuthPage() {
       goToPage(await getPostAuthLandingPage(payload.user));
     } catch (error) {
       setFeedback("register-feedback", error.message, "error");
+    }
+  });
+
+  forgotForm?.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setFeedback("forgot-feedback", "Sending reset link...");
+
+    try {
+      const payload = await requestJson("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({
+          email: forgotForm.elements.email.value
+        })
+      });
+
+      setFeedback("forgot-feedback", payload.message || "Reset link sent.", "success");
+      forgotForm.reset();
+    } catch (error) {
+      setFeedback("forgot-feedback", error.message, "error");
+    }
+  });
+}
+
+async function initPasswordResetPage() {
+  const feedbackId = "reset-password-feedback";
+  const form = document.getElementById("reset-password-form");
+  if (!form) {
+    return;
+  }
+
+  try {
+    const client = await getBrowserSupabaseClient();
+    const {
+      data: { session },
+      error
+    } = await client.auth.getSession();
+
+    if (error) {
+      throw error;
+    }
+
+    if (!session?.user) {
+      setFeedback(
+        feedbackId,
+        "Open this page from the password reset email so we can verify the recovery token.",
+        "error"
+      );
+    }
+  } catch (error) {
+    setFeedback(feedbackId, error.message || "Unable to validate your recovery link.", "error");
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setFeedback(feedbackId, "Updating your password...");
+
+    try {
+      const client = await getBrowserSupabaseClient();
+      const password = String(form.elements.newPassword.value || "");
+      const confirmPassword = String(form.elements.confirmPassword.value || "");
+      if (password.length < 8) {
+        throw new Error("Your new password must be at least 8 characters.");
+      }
+      if (password !== confirmPassword) {
+        throw new Error("The password confirmation does not match.");
+      }
+
+      const { error } = await client.auth.updateUser({ password });
+      if (error) {
+        throw error;
+      }
+
+      setFeedback(feedbackId, "Password updated. Redirecting to sign in...", "success");
+      window.setTimeout(() => {
+        goToPage("index.html");
+      }, 900);
+    } catch (error) {
+      setFeedback(feedbackId, error.message || "Unable to update your password.", "error");
+    }
+  });
+}
+
+function renderOfficerPathFields(form) {
+  const block = document.getElementById("officer-path-fields");
+  if (!block || !form) {
+    return;
+  }
+
+  block.hidden = !form.elements.officerPathRequested.checked;
+}
+
+async function initOnboardingPage() {
+  const form = document.getElementById("identity-form");
+  const submitButton = document.getElementById("identity-submit");
+  if (!form || !sessionUser) {
+    return;
+  }
+
+  populateStateSelect(form.elements.state, sessionUser.region);
+  identityVerificationRecord = (await requestJson("/api/identity", { method: "GET" })).verification;
+  populateIdentityForm(form);
+  renderOfficerPathFields(form);
+  renderIdentityStatusCards();
+  renderIdentityProfileCard();
+  renderVerificationTimeline();
+
+  form.elements.officerPathRequested.addEventListener("change", () => {
+    renderOfficerPathFields(form);
+  });
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setFeedback("identity-feedback", "Saving your verification draft...");
+
+    try {
+      const payload = await requestJson("/api/identity", {
+        method: "PATCH",
+        body: JSON.stringify({
+          legalName: form.elements.legalName.value,
+          phoneNumber: form.elements.phoneNumber.value,
+          city: form.elements.city.value,
+          state: form.elements.state.value,
+          birthDate: form.elements.birthDate.value,
+          idDocumentType: form.elements.idDocumentType.value,
+          idDocumentLast4: form.elements.idDocumentLast4.value,
+          officerPathRequested: form.elements.officerPathRequested.checked,
+          officerDepartment: form.elements.officerDepartment.value,
+          officerWorkEmail: form.elements.officerWorkEmail.value,
+          backgroundConsent: form.elements.backgroundConsent.checked,
+          trainingAcknowledged: form.elements.trainingAcknowledged.checked,
+          codeOfConductAccepted: form.elements.codeOfConductAccepted.checked
+        })
+      });
+
+      identityVerificationRecord = payload.verification;
+      populateIdentityForm(form);
+      renderIdentityStatusCards();
+      renderIdentityProfileCard();
+      renderVerificationTimeline();
+      setFeedback("identity-feedback", "Verification draft saved.", "success");
+    } catch (error) {
+      setFeedback("identity-feedback", error.message, "error");
+    }
+  });
+
+  submitButton?.addEventListener("click", async () => {
+    setFeedback("identity-feedback", "Submitting your verification package...");
+
+    try {
+      const payload = await requestJson("/api/identity/submit", {
+        method: "POST",
+        body: JSON.stringify({})
+      });
+
+      sessionUser = payload.user;
+      identityVerificationRecord = payload.verification;
+      updateSessionChrome();
+      renderProfileCard();
+      renderIdentityStatusCards();
+      renderIdentityProfileCard();
+      renderVerificationTimeline();
+      setFeedback("identity-feedback", "Verification submitted for review.", "success");
+    } catch (error) {
+      setFeedback("identity-feedback", error.message, "error");
     }
   });
 }
@@ -2207,17 +3328,145 @@ function renderAdminUserList() {
   wireAdminForms();
 }
 
+function buildAdminIdentityCard(record) {
+  const statusOptions = IDENTITY_REVIEW_STATUS_OPTIONS.map(
+    (status) =>
+      `<option value="${status}" ${status === record.status ? "selected" : ""}>${
+        IDENTITY_STATUS_LABELS[status] || status
+      }</option>`
+  ).join("");
+
+  return `
+    <article class="admin-user-card" data-identity-user-id="${record.userId}">
+      <div class="admin-user-head">
+        <div>
+          <strong>${escapeHtml(record.user?.displayName || record.legalName || "Unknown member")}</strong>
+          <span>${escapeHtml(record.user?.email || record.officerWorkEmail || "No email on file")}</span>
+        </div>
+        <span class="chip">${record.officerPathRequested ? "Officer path" : "Guardian path"}</span>
+      </div>
+      <div class="profile-card admin-identity-profile">
+        <div>
+          <p class="profile-label">State</p>
+          <strong>${escapeHtml(record.state || record.user?.region || "Not provided")}</strong>
+        </div>
+        <div>
+          <p class="profile-label">ID document</p>
+          <strong>${escapeHtml(record.idDocumentType || "unset")} ${record.idDocumentLast4 ? `· ${escapeHtml(record.idDocumentLast4)}` : ""}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Submitted</p>
+          <strong>${record.submittedAt ? new Date(record.submittedAt).toLocaleString() : "Draft only"}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Current profile status</p>
+          <strong>${escapeHtml(record.user?.verificationStatus || "Unknown")}</strong>
+        </div>
+      </div>
+      <form class="admin-identity-form">
+        <label>
+          Review status
+          <select name="status">${statusOptions}</select>
+        </label>
+        <label class="span-two-field">
+          Reviewer notes
+          <textarea name="reviewNotes" rows="3" placeholder="Add the next action or approval notes.">${escapeHtml(
+            record.reviewNotes || ""
+          )}</textarea>
+        </label>
+        <button class="primary-button" type="submit">Save review</button>
+      </form>
+      <div class="form-feedback" id="identity-admin-feedback-${record.userId}"></div>
+    </article>
+  `;
+}
+
+function wireAdminIdentityForms() {
+  document.querySelectorAll(".admin-identity-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const card = form.closest("[data-identity-user-id]");
+      const userId = card?.dataset.identityUserId;
+      if (!userId) {
+        return;
+      }
+
+      setFeedback(`identity-admin-feedback-${userId}`, "Saving review...");
+
+      try {
+        const payload = await requestJson(`/api/admin/identity/${userId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: form.elements.status.value,
+            reviewNotes: form.elements.reviewNotes.value
+          })
+        });
+
+        adminUsers = adminUsers.map((user) => (user.id === payload.user.id ? payload.user : user));
+        adminIdentityRecords = adminIdentityRecords.map((record) =>
+          record.userId === userId
+            ? {
+                ...record,
+                ...payload.verification,
+                user: payload.user
+              }
+            : record
+        );
+        renderAdminSummary();
+        renderAdminUserList();
+        renderAdminIdentityList();
+      } catch (error) {
+        setFeedback(`identity-admin-feedback-${userId}`, error.message, "error");
+      }
+    });
+  });
+}
+
+function renderAdminIdentityList() {
+  const container = document.getElementById("admin-identity-list");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = adminIdentityRecords.length
+    ? adminIdentityRecords
+        .slice()
+        .sort((left, right) => {
+          const leftTime = left.submittedAt ? new Date(left.submittedAt).getTime() : 0;
+          const rightTime = right.submittedAt ? new Date(right.submittedAt).getTime() : 0;
+          return rightTime - leftTime;
+        })
+        .map(buildAdminIdentityCard)
+        .join("")
+    : '<article class="admin-user-card"><div class="admin-user-head"><div><strong>No verification packages yet</strong><span>Members will appear here after they save or submit their onboarding record.</span></div></div></article>';
+
+  wireAdminIdentityForms();
+}
+
 async function initAdminPage() {
-  const response = await requestJson("/api/admin/users");
-  adminUsers = response.users;
+  const [usersResponse, identityResponse] = await Promise.all([
+    requestJson("/api/admin/users"),
+    requestJson("/api/admin/identity")
+  ]);
+  adminUsers = usersResponse.users;
+  adminIdentityRecords = identityResponse.records;
   renderAdminSummary();
   renderAdminUserList();
+  renderAdminIdentityList();
 }
 
 async function initProtectedPage() {
   const session = await requestJson("/api/auth/session");
   sessionUser = session.user;
+  questBoard = buildDefaultQuestBoard();
   const authTransport = await getAuthTransport();
+
+  try {
+    questBoard = normalizeQuestBoardPayload(await requestJson("/api/quests", { method: "GET" }));
+  } catch (error) {
+    console.warn("Quest board unavailable.", error);
+  }
 
   updateSessionChrome();
   createNav();
@@ -2226,8 +3475,11 @@ async function initProtectedPage() {
   renderDashboardStats();
   renderPageLinks();
   renderVerificationTimeline();
+  renderQuestSummary();
+  renderMyQuests();
   renderMissions();
   wireMissionFilters();
+  renderDashboardQuestPanel();
   renderModules();
   renderSafetyControls();
   renderReportForm();
@@ -2240,9 +3492,14 @@ async function initProtectedPage() {
     await initAccountPage();
   }
 
+  if (currentPage === "onboarding") {
+    await initOnboardingPage();
+  }
+
   if (currentPage === "admin") {
     if (authTransport === "browser") {
       const list = document.getElementById("admin-user-list");
+      const identityList = document.getElementById("admin-identity-list");
       const summary = document.getElementById("admin-summary");
       if (summary) {
         summary.innerHTML =
@@ -2252,6 +3509,10 @@ async function initProtectedPage() {
         list.innerHTML =
           '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Static hosting limitation</strong><span>GitHub Pages can sign users in, but bulk admin management still runs through the server APIs.</span></div></div></article>';
       }
+      if (identityList) {
+        identityList.innerHTML =
+          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Verification review unavailable</strong><span>Identity moderation uses privileged server APIs and is not exposed on static hosting.</span></div></div></article>';
+      }
       return;
     }
 
@@ -2260,6 +3521,11 @@ async function initProtectedPage() {
 }
 
 async function init() {
+  if (currentPage === "reset-password") {
+    await initPasswordResetPage();
+    return;
+  }
+
   if (document.body.classList.contains("auth-body")) {
     await initAuthPage();
     return;

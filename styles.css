@@ -138,6 +138,12 @@ h4 {
   flex-wrap: wrap;
 }
 
+.divider-line {
+  height: 1px;
+  margin: 20px 0 4px;
+  background: rgba(135, 186, 255, 0.14);
+}
+
 .auth-form {
   margin-top: 18px;
 }
@@ -349,6 +355,7 @@ input,
 
 .readiness-list,
 .timeline,
+.status-strip,
 .profile-card,
 .safety-stack,
 .module-list,
@@ -432,6 +439,15 @@ input,
   gap: 16px;
 }
 
+.timeline-step.current {
+  border: 1px solid rgba(124, 247, 207, 0.24);
+}
+
+.timeline-step.pending .timeline-marker {
+  background: rgba(156, 179, 202, 0.5);
+  box-shadow: none;
+}
+
 .timeline-marker {
   width: 14px;
   height: 14px;
@@ -452,6 +468,11 @@ input,
 .filter-row {
   gap: 10px;
   flex-wrap: wrap;
+}
+
+.status-strip {
+  margin-top: 18px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .filter-button,
@@ -532,6 +553,14 @@ input,
   line-height: 1.6;
 }
 
+.quest-status-note,
+.quest-progress-value,
+.quest-progress-meta span,
+.dashboard-quest-card span,
+.quest-dashboard-stat span {
+  color: var(--muted);
+}
+
 .mission-meta {
   margin: 16px 0;
   line-height: 1.6;
@@ -547,10 +576,109 @@ input,
   padding: 6px 10px;
 }
 
+.quest-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.quest-step-list {
+  margin: 12px 0 0;
+  padding-left: 18px;
+  color: var(--muted);
+}
+
+.quest-step-list li + li {
+  margin-top: 6px;
+}
+
+.quest-status-note {
+  margin-top: 14px;
+  line-height: 1.6;
+}
+
+.quest-progress-card {
+  display: grid;
+  gap: 14px;
+}
+
+.quest-progress-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.quest-progress-form {
+  display: grid;
+  gap: 14px;
+}
+
+.quest-progress-meter {
+  height: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(135, 186, 255, 0.12);
+}
+
+.quest-progress-meter span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, var(--accent-strong), var(--warning));
+}
+
+.dashboard-quest-stack {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 18px;
+}
+
+.quest-dashboard-stat,
+.dashboard-quest-card {
+  padding: 16px;
+  border-radius: 18px;
+  border: 1px solid rgba(135, 186, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.quest-dashboard-stat strong {
+  display: block;
+  font-size: 1.45rem;
+  margin-bottom: 6px;
+}
+
+.dashboard-quest-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 14px;
+}
+
+.dashboard-quest-card strong {
+  display: block;
+  margin-bottom: 6px;
+}
+
 .report-form {
   display: grid;
   gap: 14px;
   margin-top: 18px;
+}
+
+.inline-fields,
+.split-actions {
+  display: grid;
+  gap: 14px;
+}
+
+.inline-fields {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.split-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 label {
@@ -634,6 +762,17 @@ textarea {
   grid-template-columns: repeat(4, minmax(0, 1fr)) auto;
   gap: 12px;
   align-items: end;
+}
+
+.admin-identity-form {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr auto;
+  gap: 12px;
+  align-items: end;
+}
+
+.admin-identity-profile {
+  margin-bottom: 16px;
 }
 
 .toggle-field {
@@ -988,7 +1127,11 @@ textarea {
   .roadmap-grid,
   .content-grid,
   .admin-summary,
-  .map-layout {
+  .map-layout,
+  .status-strip,
+  .inline-fields,
+  .split-actions,
+  .dashboard-quest-stack {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -996,6 +1139,7 @@ textarea {
   .wide-list,
   .page-link-grid,
   .admin-user-form,
+  .admin-identity-form,
   .auth-shell-wide {
     grid-template-columns: 1fr;
   }
@@ -1017,7 +1161,11 @@ textarea {
   .content-grid,
   .profile-card,
   .admin-summary,
-  .map-layout {
+  .map-layout,
+  .status-strip,
+  .inline-fields,
+  .split-actions,
+  .dashboard-quest-stack {
     grid-template-columns: 1fr;
   }
 
@@ -1045,6 +1193,11 @@ textarea {
   .secondary-button,
   .nav-link {
     width: 100%;
+  }
+
+  .quest-actions {
+    width: 100%;
+    justify-content: stretch;
   }
 
   .readiness-ring {

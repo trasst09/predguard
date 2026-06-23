@@ -65,6 +65,7 @@ const verificationSteps = [
 
 const missions = [
   {
+    id: "quest-shadow",
     type: "online",
     risk: "Moderate oversight",
     title: "Patrol the Shadows",
@@ -73,9 +74,19 @@ const missions = [
     location: "Remote / Pacific time",
     schedule: "Tonight, 7:00 PM",
     roles: ["Spotter", "Verifier"],
-    protocol: "Evidence template required"
+    protocol: "Evidence template required",
+    minimumRole: "Spotter / Tipster",
+    minReadiness: 30,
+    xpReward: 120,
+    readinessReward: 4,
+    steps: [
+      "Review the flagged channel list and confirm observation coverage.",
+      "Capture timestamps, usernames, and grooming indicators in the evidence template.",
+      "Submit a moderator-ready summary with links and escalation notes."
+    ]
   },
   {
+    id: "quest-hidden-meet",
     type: "hybrid",
     risk: "Supervisor approval",
     title: "Chapter: The Hidden Meet",
@@ -84,9 +95,19 @@ const missions = [
     location: "San Jose, CA",
     schedule: "Wednesday, 5:30 PM",
     roles: ["Decoy", "Support", "Officer"],
-    protocol: "Safety briefing + live check-ins"
+    protocol: "Safety briefing + live check-ins",
+    minimumRole: "Decoy / Support",
+    minReadiness: 55,
+    xpReward: 220,
+    readinessReward: 8,
+    steps: [
+      "Complete the supervisor briefing and confirm assigned support roles.",
+      "Run the live safety check-in cadence during the meetup window.",
+      "Close the mission with a debrief, evidence handoff, and incident summary."
+    ]
   },
   {
+    id: "quest-vigil",
     type: "realworld",
     risk: "High restriction",
     title: "Meetup Vigil",
@@ -95,9 +116,19 @@ const missions = [
     location: "Oakland, CA",
     schedule: "Saturday, 2:00 PM",
     roles: ["Officer", "Safety monitor", "Video recorder"],
-    protocol: "Location consent expires automatically"
+    protocol: "Location consent expires automatically",
+    minimumRole: "Officer / LE Partner",
+    minReadiness: 80,
+    xpReward: 320,
+    readinessReward: 10,
+    steps: [
+      "Verify all participants, equipment, and consent-based location sharing before deployment.",
+      "Maintain field safety oversight and document every checkpoint during the support window.",
+      "Finish the post-event debrief with reviewed media, notes, and chain-of-custody records."
+    ]
   },
   {
+    id: "quest-lantern",
     type: "online",
     risk: "Open to trained users",
     title: "Signal Lantern",
@@ -106,7 +137,16 @@ const missions = [
     location: "Remote / Nationwide",
     schedule: "Rolling window",
     roles: ["Spotter", "Verifier"],
-    protocol: "Structured report handoff"
+    protocol: "Structured report handoff",
+    minimumRole: "Spotter / Tipster",
+    minReadiness: 20,
+    xpReward: 90,
+    readinessReward: 3,
+    steps: [
+      "Open the intake queue and identify submissions missing key evidence fields.",
+      "Normalize timestamps, platform handles, and supporting attachments.",
+      "Forward validated tips into the reporting queue with a clean summary."
+    ]
   }
 ];
 

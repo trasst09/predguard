@@ -44,6 +44,16 @@
         </div>
       </header>
       <main>
+        <section class="stat-strip" id="quest-summary"></section>
+        <section class="glass-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">My quests</p>
+              <h3>Active assignments and completions</h3>
+            </div>
+          </div>
+          <div class="mission-list wide-list" id="my-quest-list"></div>
+        </section>
         <section class="glass-card">
           <div class="section-heading">
             <div>
@@ -63,22 +73,6 @@
           </div>
         </section>
       </main>
-
-      <template id="mission-template">
-        <article class="mission-card">
-          <div class="mission-topline">
-            <span class="mission-type"></span>
-            <span class="mission-risk"></span>
-          </div>
-          <h4></h4>
-          <p class="mission-description"></p>
-          <div class="mission-meta"></div>
-          <div class="mission-footer">
-            <div class="required-roles"></div>
-            <button class="secondary-button mission-button" type="button">View brief</button>
-          </div>
-        </article>
-      </template>
     </div>
     <script src="./data.js"></script>
     <script src="./config.js"></script>

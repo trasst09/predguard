@@ -73,6 +73,15 @@
           <span class="text-link">Initial admin auto-promotion happens on the server-backed deployment.</span>
           <span class="text-link">Static deploys: set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `config.js`.</span>
         </div>
+        <div class="divider-line"></div>
+        <form class="report-form auth-form compact-form" id="forgot-password-form">
+          <label>
+            Password reset email
+            <input type="email" name="email" placeholder="guardian@example.com" required />
+          </label>
+          <button class="secondary-button form-button" type="submit">Send reset link</button>
+        </form>
+        <div class="form-feedback" id="forgot-feedback"></div>
       </section>
 
       <section class="auth-card glass-card">
