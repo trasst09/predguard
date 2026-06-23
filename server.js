@@ -46,6 +46,8 @@ const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE = "pg_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const LEGAL_VERSION = "2026-06-22";
+const LOCATION_PREFERENCES = new Set(["unset", "device", "manual", "declined"]);
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY =
   process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
@@ -75,6 +77,7 @@ const protectedRoutes = new Set([
   "/dashboard.html",
   "/onboarding.html",
   "/missions.html",
+  "/map.html",
   "/training.html",
   "/reporting.html",
   "/leaderboard.html",
@@ -89,6 +92,7 @@ const aliasMap = new Map([
   ["/dashboard", "/dashboard.html"],
   ["/onboarding", "/onboarding.html"],
   ["/missions", "/missions.html"],
+  ["/map", "/map.html"],
   ["/training", "/training.html"],
   ["/reporting", "/reporting.html"],
   ["/leaderboard", "/leaderboard.html"],
@@ -224,6 +228,11 @@ function buildDefaultProfile({ id, email, displayName, region, isAdmin }) {
     readinessScore: isAdmin ? 98 : 35,
     nextRole: isAdmin ? "Officer / LE Partner" : "Decoy / Support",
     isAdmin,
+    legalVersion: LEGAL_VERSION,
+    termsAcceptedAt: null,
+    privacyAcceptedAt: null,
+    locationTrackingPreference: "unset",
+    locationTrackingUpdatedAt: null,
     createdAt: now,
     updatedAt: now,
     lastLoginAt: null
@@ -246,6 +255,11 @@ function mapSupabaseProfile(record) {
     readinessScore: record.readiness_score,
     nextRole: getNextRole(record.role),
     isAdmin: Boolean(record.is_admin),
+    legalVersion: record.legal_version || LEGAL_VERSION,
+    termsAcceptedAt: record.terms_accepted_at,
+    privacyAcceptedAt: record.privacy_accepted_at,
+    locationTrackingPreference: record.location_tracking_preference || "unset",
+    locationTrackingUpdatedAt: record.location_tracking_updated_at,
     createdAt: record.created_at,
     updatedAt: record.updated_at,
     lastLoginAt: record.last_login_at
@@ -263,7 +277,33 @@ function profileToSupabaseRecord(user) {
     points: user.points,
     readiness_score: user.readinessScore,
     is_admin: user.isAdmin,
+    legal_version: user.legalVersion || LEGAL_VERSION,
+    terms_accepted_at: user.termsAcceptedAt,
+    privacy_accepted_at: user.privacyAcceptedAt,
+    location_tracking_preference: user.locationTrackingPreference || "unset",
+    location_tracking_updated_at: user.locationTrackingUpdatedAt,
     last_login_at: user.lastLoginAt
+  };
+}
+
+function normalizeLocationPreference(value, fallback = "unset") {
+  const normalized = String(value || "").trim().toLowerCase();
+  return LOCATION_PREFERENCES.has(normalized) ? normalized : fallback;
+}
+
+function buildLegalAcceptance({ acceptedTerms, acceptedPrivacy, locationTrackingPreference }) {
+  const termsAccepted = Boolean(acceptedTerms);
+  const privacyAccepted = Boolean(acceptedPrivacy);
+  const locationPreference = normalizeLocationPreference(locationTrackingPreference);
+
+  return {
+    acceptedTerms: termsAccepted,
+    acceptedPrivacy: privacyAccepted,
+    legalVersion: LEGAL_VERSION,
+    termsAcceptedAt: termsAccepted ? new Date().toISOString() : null,
+    privacyAcceptedAt: privacyAccepted ? new Date().toISOString() : null,
+    locationTrackingPreference: locationPreference,
+    locationTrackingUpdatedAt: locationPreference === "unset" ? null : new Date().toISOString()
   };
 }
 
@@ -375,7 +415,7 @@ async function supabaseAuthenticateUser(email, password) {
   return profile;
 }
 
-async function registerSupabaseUser({ displayName, email, region, password }) {
+async function registerSupabaseUser({ displayName, email, region, password, legalAcceptance }) {
   const shouldPromoteToAdmin = !(await supabaseHasAdminProfile());
   const { data, error } = await supabaseAdmin.auth.admin.createUser({
     email,
@@ -404,6 +444,11 @@ async function registerSupabaseUser({ displayName, email, region, password }) {
       region,
       isAdmin: shouldPromoteToAdmin
     }),
+    legalVersion: legalAcceptance.legalVersion,
+    termsAcceptedAt: legalAcceptance.termsAcceptedAt,
+    privacyAcceptedAt: legalAcceptance.privacyAcceptedAt,
+    locationTrackingPreference: legalAcceptance.locationTrackingPreference,
+    locationTrackingUpdatedAt: legalAcceptance.locationTrackingUpdatedAt,
     lastLoginAt: new Date().toISOString()
   });
 
@@ -421,10 +466,35 @@ async function listSupabaseUsers() {
 }
 
 async function updateSupabaseUserProfile(userId, updates) {
-  return supabasePatchProfile(userId, {
-    display_name: updates.displayName,
-    region: updates.region
-  });
+  const patch = {};
+
+  if (updates.displayName !== undefined) {
+    patch.display_name = updates.displayName;
+  }
+
+  if (updates.region !== undefined) {
+    patch.region = updates.region;
+  }
+
+  if (updates.locationTrackingPreference !== undefined) {
+    patch.location_tracking_preference = normalizeLocationPreference(updates.locationTrackingPreference);
+    patch.location_tracking_updated_at =
+      patch.location_tracking_preference === "unset" ? null : new Date().toISOString();
+  }
+
+  if (updates.acceptedTerms) {
+    patch.terms_accepted_at = updates.termsAcceptedAt || new Date().toISOString();
+  }
+
+  if (updates.acceptedPrivacy) {
+    patch.privacy_accepted_at = updates.privacyAcceptedAt || new Date().toISOString();
+  }
+
+  if (updates.acceptedTerms || updates.acceptedPrivacy) {
+    patch.legal_version = LEGAL_VERSION;
+  }
+
+  return supabasePatchProfile(userId, patch);
 }
 
 async function updateSupabasePassword(userId, email, currentPassword, newPassword) {
@@ -554,6 +624,11 @@ async function handleAuthRegister(request, response) {
   const email = normalizeEmail(body.email);
   const region = String(body.region || "").trim();
   const password = String(body.password || "");
+  const legalAcceptance = buildLegalAcceptance({
+    acceptedTerms: body.acceptedTerms,
+    acceptedPrivacy: body.acceptedPrivacy,
+    locationTrackingPreference: body.locationTrackingPreference
+  });
 
   if (!displayName || !email || !region || password.length < 8) {
     sendJson(response, 400, {
@@ -562,7 +637,14 @@ async function handleAuthRegister(request, response) {
     return;
   }
 
-  const user = await registerUser({ displayName, email, region, password });
+  if (!legalAcceptance.acceptedTerms || !legalAcceptance.acceptedPrivacy) {
+    sendJson(response, 400, {
+      error: "You must accept the Terms of Service and Privacy Notice before creating an account."
+    });
+    return;
+  }
+
+  const user = await registerUser({ displayName, email, region, password, legalAcceptance });
   createSession(response, user.id);
   sendJson(response, 201, { user });
 }
@@ -584,15 +666,46 @@ async function handleAuthLogin(request, response) {
 
 async function handleAccountUpdate(request, response, currentUser) {
   const body = await parseBody(request);
-  const displayName = String(body.displayName || "").trim();
-  const region = String(body.region || "").trim();
+  const patch = {};
 
-  if (!displayName || !region) {
-    sendJson(response, 400, { error: "Display name and region are required." });
+  if (body.displayName !== undefined || body.region !== undefined) {
+    const displayName = String(body.displayName || "").trim();
+    const region = String(body.region || "").trim();
+
+    if (!displayName || !region) {
+      sendJson(response, 400, { error: "Display name and region are required." });
+      return;
+    }
+
+    patch.displayName = displayName;
+    patch.region = region;
+  }
+
+  if (body.acceptedTerms !== undefined || body.acceptedPrivacy !== undefined) {
+    const acceptedTerms = Boolean(body.acceptedTerms);
+    const acceptedPrivacy = Boolean(body.acceptedPrivacy);
+
+    if (!acceptedTerms || !acceptedPrivacy) {
+      sendJson(response, 400, {
+        error: "Both Terms of Service and Privacy Notice consent checkboxes must be accepted."
+      });
+      return;
+    }
+
+    patch.acceptedTerms = acceptedTerms;
+    patch.acceptedPrivacy = acceptedPrivacy;
+  }
+
+  if (body.locationTrackingPreference !== undefined) {
+    patch.locationTrackingPreference = normalizeLocationPreference(body.locationTrackingPreference);
+  }
+
+  if (!Object.keys(patch).length) {
+    sendJson(response, 400, { error: "No valid account updates were provided." });
     return;
   }
 
-  const user = await updateUserProfile(currentUser.id, { displayName, region });
+  const user = await updateUserProfile(currentUser.id, patch);
   sendJson(response, 200, { user });
 }
 

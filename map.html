@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Map</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+      integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY="
+      crossorigin=""
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body data-page="map">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Operations Atlas</p>
+              <h1>Guardian Map</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="section-intro">
+          <p class="kicker">USA coverage view</p>
+          <h2>Track states, guardians, quests, and your captured location across the United States.</h2>
+          <p class="hero-text">
+            Click a state, user, or quest marker to focus the U.S. map, inspect linked activity,
+            and see where your current device location lands relative to active operations.
+          </p>
+        </div>
+      </header>
+
+      <main>
+        <section class="map-layout">
+          <article class="glass-card map-stage-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Spatial command</p>
+                <h3>United States map</h3>
+              </div>
+              <div class="filter-row">
+                <button class="filter-button active" data-map-filter="all" type="button">All</button>
+                <button class="filter-button" data-map-filter="regions" type="button">States</button>
+                <button class="filter-button" data-map-filter="users" type="button">Users</button>
+                <button class="filter-button" data-map-filter="quests" type="button">Quests</button>
+              </div>
+            </div>
+            <div class="map-stage">
+              <div class="map-canvas" id="map-canvas" aria-label="Interactive operations map"></div>
+            </div>
+            <div class="map-legend">
+              <span><i class="legend-region"></i> State</span>
+              <span><i class="legend-user"></i> User</span>
+              <span><i class="legend-quest"></i> Quest</span>
+              <span><i class="legend-location"></i> Your location</span>
+            </div>
+          </article>
+
+          <aside class="glass-card map-detail-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Selected node</p>
+                <h3 id="map-detail-title">U.S. overview</h3>
+              </div>
+              <button class="secondary-button compact-button" id="map-clear-selection" type="button">
+                Clear focus
+              </button>
+            </div>
+            <p class="hero-text map-detail-copy" id="map-detail-copy">
+              Select any state, guardian, or quest to inspect linked activity and related nodes.
+            </p>
+            <div class="profile-card map-detail-stats" id="map-detail-stats"></div>
+            <div class="report-preview map-detail-preview" id="map-detail-preview">
+              Cross-highlighting keeps related states, quests, and users visible while dimming
+              everything else. Captured browser location is stored on this device right now.
+            </div>
+          </aside>
+        </section>
+
+        <section class="content-grid map-panel-grid">
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">States</p>
+                <h3>Coverage states</h3>
+              </div>
+            </div>
+            <div class="map-entity-list" id="map-region-list"></div>
+          </article>
+
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Users</p>
+                <h3>Guardian roster</h3>
+              </div>
+            </div>
+            <div class="map-entity-list" id="map-user-list"></div>
+          </article>
+
+          <article class="glass-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Quests</p>
+                <h3>Active objectives</h3>
+              </div>
+            </div>
+            <div class="map-entity-list" id="map-quest-list"></div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script src="./data.js"></script>
+    <script
+      src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+      integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo="
+      crossorigin=""
+    ></script>
+    <script src="./app.js"></script>
+  </body>
+</html>

@@ -93,8 +93,10 @@
             <input type="email" name="email" placeholder="guardian@example.com" required />
           </label>
           <label>
-            Region
-            <input type="text" name="region" placeholder="Bay Area, CA" required />
+            State
+            <select name="region" id="register-region" required>
+              <option value="">Select your state</option>
+            </select>
           </label>
           <label>
             Password
@@ -106,9 +108,50 @@
               required
             />
           </label>
+          <label class="toggle-field legal-toggle">
+            <input type="checkbox" name="acceptedTerms" required />
+            I agree to the Terms of Service for account access, acceptable use, and safety rules.
+          </label>
+          <label class="toggle-field legal-toggle">
+            <input type="checkbox" name="acceptedPrivacy" required />
+            I agree to the Privacy Notice covering account data, session cookies, and optional location sharing.
+          </label>
+          <label>
+            Location sharing preference
+            <select name="locationTrackingPreference">
+              <option value="unset">Decide later in my account</option>
+              <option value="device">Use device location when I allow it</option>
+              <option value="manual">I prefer setting my location manually</option>
+              <option value="declined">Do not track my location</option>
+            </select>
+          </label>
           <button class="primary-button form-button" type="submit">Create account</button>
         </form>
         <div class="form-feedback" id="register-feedback"></div>
+        <div class="legal-panel">
+          <details class="legal-details">
+            <summary>Terms of Service summary</summary>
+            <p>
+              PredatorGuard access is limited to authenticated members. You are responsible for
+              lawful use, truthful account data, protecting your credentials, and following safety
+              and moderation workflows. Access can be suspended for abuse, unsafe conduct, or
+              policy violations.
+            </p>
+          </details>
+          <details class="legal-details">
+            <summary>Privacy Notice summary</summary>
+            <p>
+              The app stores account profile data in Supabase, uses an HTTP-only session cookie for
+              sign-in, and only stores browser location after you opt in. Device coordinates stay on
+              this browser right now, while your location-sharing preference and legal acceptance
+              timestamps are saved with your profile.
+            </p>
+          </details>
+          <p class="hero-text legal-caption">
+            Legal version effective June 22, 2026. You can review and update location-sharing
+            settings later from your account page.
+          </p>
+        </div>
       </section>
     </div>
     <script src="./app.js" defer></script>

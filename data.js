@@ -3,7 +3,7 @@ const guardianProfile = {
   nextRole: "Decoy / Support",
   readinessScore: 74,
   points: 1420,
-  region: "Bay Area, CA",
+  region: "California",
   verification: "Phone + ID complete",
   readinessItems: [
     {
@@ -155,6 +155,141 @@ const leaderboard = [
   { name: "Maya", role: "Spotter", points: 1420 }
 ];
 
+const mapRegions = [
+  {
+    id: "ca",
+    name: "California",
+    focus: "West Coast reporting, coordination, and hybrid support",
+    status: "Stable coverage",
+    users: 5,
+    quests: 2,
+    state: "California"
+  },
+  {
+    id: "tx",
+    name: "Texas",
+    focus: "Large-area support relay and field coordination",
+    status: "High activity",
+    users: 8,
+    quests: 3,
+    state: "Texas"
+  },
+  {
+    id: "fl",
+    name: "Florida",
+    focus: "Tip intake, review, and coastal monitoring",
+    status: "Quest surge",
+    users: 4,
+    quests: 2,
+    state: "Florida"
+  },
+  {
+    id: "ny",
+    name: "New York",
+    focus: "Northeast moderation and evidence review",
+    status: "Restricted access",
+    users: 3,
+    quests: 2,
+    state: "New York"
+  }
+];
+
+const mapUsers = [
+  {
+    id: "user-maya",
+    name: "Maya",
+    role: "Spotter / Tipster",
+    regionId: "ca",
+    xp: 1420,
+    status: "On patrol",
+    focus: "Discord and forum sweeps",
+    state: "California"
+  },
+  {
+    id: "user-jordan",
+    name: "Jordan",
+    role: "Verifier / Moderator",
+    regionId: "ny",
+    xp: 1890,
+    status: "Reviewing reports",
+    focus: "Evidence validation",
+    state: "New York"
+  },
+  {
+    id: "user-rin",
+    name: "Rin",
+    role: "Decoy / Support",
+    regionId: "tx",
+    xp: 1760,
+    status: "Ready",
+    focus: "Escalation support",
+    state: "Texas"
+  },
+  {
+    id: "user-alex",
+    name: "Alex",
+    role: "Officer / LE Partner",
+    regionId: "fl",
+    xp: 2210,
+    status: "In briefing",
+    focus: "Field safety oversight",
+    state: "Florida"
+  },
+  {
+    id: "user-noor",
+    name: "Noor",
+    role: "Verifier / Moderator",
+    regionId: "ca",
+    xp: 1685,
+    status: "Monitoring",
+    focus: "Case triage",
+    state: "California"
+  }
+];
+
+const mapQuests = [
+  {
+    id: "quest-shadow",
+    title: "Patrol the Shadows",
+    type: "Online",
+    regionId: "ny",
+    difficulty: "Moderate",
+    window: "Tonight, 7:00 PM",
+    objective: "Track suspicious grooming patterns and package moderator-ready notes.",
+    state: "New York"
+  },
+  {
+    id: "quest-hidden-meet",
+    title: "The Hidden Meet",
+    type: "Hybrid",
+    regionId: "ca",
+    difficulty: "Supervisor approval",
+    window: "Wednesday, 5:30 PM",
+    objective: "Coordinate observers, support roles, and live safety check-ins.",
+    state: "California"
+  },
+  {
+    id: "quest-lantern",
+    title: "Signal Lantern",
+    type: "Online",
+    regionId: "tx",
+    difficulty: "Open to trained users",
+    window: "Rolling window",
+    objective: "Normalize timestamps and route validated tips into the reporting queue.",
+    state: "Texas"
+  },
+  {
+    id: "quest-vigil",
+    title: "Meetup Vigil",
+    type: "Field",
+    regionId: "fl",
+    difficulty: "High restriction",
+    window: "Saturday, 2:00 PM",
+    objective: "Run a tightly controlled support operation with debrief requirements.",
+    state: "Florida"
+  }
+];
+
 const scoringModel = [
   {
     title: "Training completion",
@@ -208,6 +343,11 @@ const pageLinks = [
     title: "Missions",
     href: "./missions.html",
     description: "Browse mission briefs by type, required roles, and oversight level."
+  },
+  {
+    title: "Map",
+    href: "./map.html",
+    description: "Explore regions, guardians, and quests through an interactive operations map."
   },
   {
     title: "Training",

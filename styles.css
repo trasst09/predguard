@@ -357,7 +357,8 @@ input,
 .mission-list,
 .page-link-grid,
 .admin-summary,
-.admin-user-list {
+.admin-user-list,
+.map-entity-list {
   display: grid;
   gap: 14px;
 }
@@ -377,7 +378,8 @@ input,
 .content-grid,
 .roadmap-grid,
 .page-link-grid,
-.admin-summary {
+.admin-summary,
+.map-layout {
   display: grid;
   gap: 18px;
 }
@@ -645,6 +647,45 @@ textarea {
   width: auto;
 }
 
+.legal-toggle {
+  align-items: flex-start;
+  padding-top: 0;
+  line-height: 1.6;
+}
+
+.compact-form {
+  margin-top: 16px;
+}
+
+.legal-panel {
+  margin-top: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.legal-details {
+  border: 1px solid rgba(135, 186, 255, 0.18);
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.03);
+  padding: 14px 16px;
+}
+
+.legal-details summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--text);
+}
+
+.legal-details p {
+  margin-top: 12px;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.legal-caption {
+  margin-top: 0;
+}
+
 .sticky-preview {
   min-height: 220px;
 }
@@ -682,12 +723,263 @@ textarea {
   text-decoration: none;
 }
 
+.map-layout {
+  grid-template-columns: 1.5fr 0.9fr;
+  margin: 22px 0 18px;
+  align-items: start;
+}
+
+.map-panel-grid {
+  margin-top: 0;
+}
+
+.map-stage-card,
+.map-detail-card {
+  min-height: 100%;
+}
+
+.map-stage {
+  position: relative;
+  min-height: 620px;
+  margin-top: 18px;
+  border-radius: 28px;
+  overflow: hidden;
+  border: 1px solid rgba(124, 247, 207, 0.14);
+  background:
+    radial-gradient(circle at 15% 18%, rgba(124, 247, 207, 0.18), transparent 20%),
+    radial-gradient(circle at 78% 30%, rgba(86, 157, 255, 0.18), transparent 18%),
+    radial-gradient(circle at 50% 80%, rgba(255, 203, 102, 0.1), transparent 16%),
+    linear-gradient(180deg, rgba(5, 20, 34, 0.95), rgba(4, 12, 22, 0.98));
+}
+
+.map-canvas {
+  width: 100%;
+  height: 100%;
+  min-height: 620px;
+}
+
+.leaflet-container {
+  background: transparent;
+  font-family: "Space Grotesk", sans-serif;
+}
+
+.leaflet-popup-content-wrapper,
+.leaflet-popup-tip {
+  background: #0d1b2f;
+  color: var(--text);
+}
+
+.leaflet-popup-content {
+  margin: 12px 14px;
+  line-height: 1.5;
+}
+
+.map-stage::before,
+.map-stage::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+
+.map-stage::before {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
+  background-size: 72px 72px;
+  opacity: 0.16;
+}
+
+.map-stage::after {
+  background:
+    linear-gradient(90deg, transparent 49.6%, rgba(124, 247, 207, 0.18) 50%, transparent 50.4%),
+    linear-gradient(transparent 49.6%, rgba(124, 247, 207, 0.18) 50%, transparent 50.4%);
+  opacity: 0.35;
+}
+
+.map-region-node,
+.map-marker,
+.map-entity-card {
+  font: inherit;
+  color: var(--text);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    opacity 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease,
+    background 180ms ease;
+}
+
+.map-region-node,
+.map-marker {
+  position: absolute;
+}
+
+.map-region-node {
+  min-width: 96px;
+  padding: 8px 12px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  background: linear-gradient(145deg, rgba(16, 53, 76, 0.78), rgba(9, 27, 44, 0.7));
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 0 0 1px rgba(124, 247, 207, 0.06);
+}
+
+.map-region-node span,
+.map-region-node strong,
+.map-marker span {
+  display: block;
+}
+
+.map-region-node span {
+  color: var(--muted);
+  margin-bottom: 2px;
+  font-size: 0.78rem;
+}
+
+.map-region-node strong {
+  font-size: 0.95rem;
+}
+
+.map-marker {
+  min-width: 132px;
+  padding: 10px 12px;
+  border-radius: 999px;
+  transform: translate(-50%, -50%);
+  text-align: left;
+}
+
+.user-marker {
+  background: rgba(124, 247, 207, 0.14);
+}
+
+.quest-marker {
+  background: rgba(255, 203, 102, 0.12);
+}
+
+.map-location-marker {
+  background: rgba(135, 186, 255, 0.2);
+}
+
+.map-region-node.active {
+  border-color: rgba(124, 247, 207, 0.75);
+  box-shadow: 0 0 0 1px rgba(124, 247, 207, 0.2), 0 20px 40px rgba(4, 17, 29, 0.35);
+  transform: translate(-50%, -50%) scale(1.03);
+}
+
+.map-marker.active {
+  border-color: rgba(124, 247, 207, 0.75);
+  box-shadow: 0 0 0 1px rgba(124, 247, 207, 0.2), 0 20px 40px rgba(4, 17, 29, 0.35);
+  transform: translate(-50%, -50%) scale(1.03);
+}
+
+.map-entity-card.active {
+  border-color: rgba(124, 247, 207, 0.75);
+  box-shadow: 0 0 0 1px rgba(124, 247, 207, 0.2), 0 20px 40px rgba(4, 17, 29, 0.35);
+  transform: translateY(-2px);
+}
+
+.map-region-node.muted,
+.map-marker.muted {
+  opacity: 0.28;
+}
+
+.map-region-node.hidden,
+.map-marker.hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.map-legend {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-top: 16px;
+  color: var(--muted);
+  font-size: 0.92rem;
+}
+
+.map-legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.map-legend i {
+  width: 14px;
+  height: 14px;
+  display: inline-block;
+  border-radius: 999px;
+}
+
+.legend-region {
+  background: rgba(86, 157, 255, 0.9);
+}
+
+.legend-user {
+  background: rgba(124, 247, 207, 0.9);
+}
+
+.legend-quest {
+  background: rgba(255, 203, 102, 0.9);
+}
+
+.legend-location {
+  background: rgba(135, 186, 255, 0.9);
+}
+
+.map-detail-copy {
+  margin-top: 18px;
+}
+
+.map-detail-stats {
+  margin-top: 18px;
+}
+
+.map-detail-preview {
+  margin-top: 18px;
+}
+
+.map-entity-card {
+  width: 100%;
+  padding: 16px;
+  border-radius: 18px;
+  text-align: left;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.map-entity-card strong,
+.map-entity-card span {
+  display: block;
+}
+
+.map-entity-meta {
+  margin-bottom: 8px;
+  color: var(--accent);
+  font-size: 0.75rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
 .filter-button:hover,
 .primary-button:hover,
 .secondary-button:hover,
 .nav-link:hover,
-.page-link-card:hover {
+.page-link-card:hover,
+.map-region-node:hover,
+.map-entity-card:hover {
   transform: translateY(-1px);
+}
+
+.map-marker:hover {
+  transform: translate(-50%, -50%) scale(1.02);
+}
+
+.map-region-node:hover {
+  transform: translate(-50%, -50%) scale(1.02);
 }
 
 @media (max-width: 1080px) {
@@ -695,7 +987,8 @@ textarea {
   .stat-strip,
   .roadmap-grid,
   .content-grid,
-  .admin-summary {
+  .admin-summary,
+  .map-layout {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -723,7 +1016,8 @@ textarea {
   .roadmap-grid,
   .content-grid,
   .profile-card,
-  .admin-summary {
+  .admin-summary,
+  .map-layout {
     grid-template-columns: 1fr;
   }
 
@@ -756,5 +1050,18 @@ textarea {
   .readiness-ring {
     width: 180px;
     height: 180px;
+  }
+
+  .map-stage {
+    min-height: 520px;
+  }
+
+  .map-canvas {
+    min-height: 520px;
+  }
+
+  .map-marker {
+    min-width: 110px;
+    padding: 8px 10px;
   }
 }
