@@ -103,6 +103,78 @@ const dashboardQuickActionsData =
   typeof dashboardQuickActions !== "undefined" ? dashboardQuickActions : [];
 const LEGAL_VERSION = "2026-06-22";
 const STATIC_SUPABASE_SCRIPT = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
+const REDDIT_PAGE_META = {
+  dashboard: {
+    label: "Command center",
+    description:
+      "A feed-first overview of live operations, readiness signals, and the next actions that matter.",
+    highlights: ["Check live hotspots", "Review feed activity", "Jump into missions"],
+    relatedPages: ["missions", "reporting", "map"]
+  },
+  onboarding: {
+    label: "Verification flow",
+    description:
+      "Track onboarding progress, submit identity details, and understand what unlocks next.",
+    highlights: ["Finish identity package", "Review current status", "Understand review rules"],
+    relatedPages: ["training", "account", "dashboard"]
+  },
+  missions: {
+    label: "Quest board",
+    description:
+      "Browse available missions, review your assignments, and filter opportunities by channel.",
+    highlights: ["See personal quests", "Filter mission types", "Preview role requirements"],
+    relatedPages: ["dashboard", "map", "reporting"]
+  },
+  map: {
+    label: "Operations map",
+    description:
+      "Track coverage across states, active guardians, current quests, and saved location signals.",
+    highlights: ["Filter nodes by type", "Inspect selected nodes", "Compare coverage regions"],
+    relatedPages: ["missions", "dashboard", "account"]
+  },
+  training: {
+    label: "Learning path",
+    description:
+      "Review required modules and the safety controls that gate higher-trust workflows.",
+    highlights: ["Track module completion", "Review safety controls", "Plan next certification"],
+    relatedPages: ["onboarding", "leaderboard", "dashboard"]
+  },
+  reporting: {
+    label: "Evidence intake",
+    description:
+      "Create structured drafts for moderator review with a compact, workflow-oriented form.",
+    highlights: ["Draft a report", "Check evidence structure", "Keep handoff consistent"],
+    relatedPages: ["missions", "dashboard", "roadmap"]
+  },
+  leaderboard: {
+    label: "Recognition board",
+    description:
+      "See how points are awarded and which guardians are leading through safe, verified work.",
+    highlights: ["Review top guardians", "Understand the scoring model", "Compare contribution patterns"],
+    relatedPages: ["training", "missions", "dashboard"]
+  },
+  roadmap: {
+    label: "Build roadmap",
+    description:
+      "A release-oriented view of what is shipped, active, and still planned across the MVP.",
+    highlights: ["See execution windows", "Review milestones", "Jump to built surfaces"],
+    relatedPages: ["dashboard", "admin", "reporting"]
+  },
+  account: {
+    label: "Account controls",
+    description:
+      "Manage profile data, password, legal consent, and location preferences from one page.",
+    highlights: ["Update profile", "Change password", "Control privacy settings"],
+    relatedPages: ["onboarding", "map", "dashboard"]
+  },
+  admin: {
+    label: "Moderator tools",
+    description:
+      "Review members, verification state, mission records, and confirmation queues in one workspace.",
+    highlights: ["Manage users", "Review identity queue", "Moderate missions and quests"],
+    relatedPages: ["dashboard", "roadmap", "missions"]
+  }
+};
 
 let sessionUser = null;
 let adminUsers = [];
@@ -1469,11 +1541,156 @@ function escapeHtml(value) {
     .replaceAll("'", "&#39;");
 }
 
+function getRedditPageMeta() {
+  return (
+    REDDIT_PAGE_META[currentPage] || {
+      label: "Workspace",
+      description: "A focused surface for the current PredatorGuard workflow.",
+      highlights: ["Review page content", "Use the left rail", "Follow the active workflow"],
+      relatedPages: ["dashboard", "account", "roadmap"]
+    }
+  );
+}
+
+function renderRedditRailProfile() {
+  const container = document.getElementById("reddit-rail-profile");
+  if (!container || !sessionUser) {
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="reddit-identity-row">
+      <div class="brand-mark reddit-avatar">${escapeHtml(
+        (sessionUser.displayName || "Guardian").slice(0, 2).toUpperCase()
+      )}</div>
+      <div>
+        <strong>${escapeHtml(sessionUser.displayName || "Guardian")}</strong>
+        <span>${escapeHtml(sessionUser.role || "Member")} · ${sessionUser.isAdmin ? "Admin" : "Guardian"}</span>
+      </div>
+    </div>
+    <div class="reddit-rail-metrics">
+      <div>
+        <span>Karma</span>
+        <strong>${buildProfile(sessionUser).points.toLocaleString()} XP</strong>
+      </div>
+      <div>
+        <span>Status</span>
+        <strong>${escapeHtml(buildProfile(sessionUser).verification)}</strong>
+      </div>
+    </div>
+  `;
+}
+
+function renderRedditSidebar() {
+  const container = document.getElementById("reddit-page-sidebar");
+  if (!container) {
+    return;
+  }
+
+  const meta = getRedditPageMeta();
+  const relatedLinks = meta.relatedPages
+    .map((pageKey) => {
+      const config = PAGE_CONFIG[pageKey];
+      if (!config) {
+        return "";
+      }
+
+      const title = pageKey.charAt(0).toUpperCase() + pageKey.slice(1);
+      return `<a class="reddit-side-link" href="${escapeHtml(
+        getPageUrl(pageKey)
+      )}">${escapeHtml(title)}</a>`;
+    })
+    .join("");
+
+  container.innerHTML = `
+    <section class="glass-card reddit-side-card">
+      <p class="eyebrow">About this page</p>
+      <h3>${escapeHtml(meta.label)}</h3>
+      <p class="hero-text reddit-side-copy">${escapeHtml(meta.description)}</p>
+      <div class="reddit-highlight-list">
+        ${meta.highlights
+          .map((item) => `<div class="reddit-highlight-item">${escapeHtml(item)}</div>`)
+          .join("")}
+      </div>
+    </section>
+    <section class="glass-card reddit-side-card">
+      <p class="eyebrow">Related routes</p>
+      <div class="reddit-side-links">${relatedLinks}</div>
+    </section>
+    <section class="glass-card reddit-side-card">
+      <p class="eyebrow">Community rules</p>
+      <div class="reddit-rule-list">
+        <div class="reddit-rule-item">Stay workflow-focused and evidence-first.</div>
+        <div class="reddit-rule-item">Use verified surfaces instead of freeform handoffs.</div>
+        <div class="reddit-rule-item">Keep actions safety-gated and role-aware.</div>
+      </div>
+    </section>
+  `;
+}
+
+function applyProtectedPageShell() {
+  const shell = document.querySelector(".page-shell");
+  const hero = shell?.querySelector("header.hero");
+  const main = shell?.querySelector("main");
+  const topbar = hero?.querySelector(".topbar");
+  const nav = hero?.querySelector("#site-nav");
+
+  if (!shell || !hero || !main || !topbar || shell.dataset.redditShellApplied === "true") {
+    return;
+  }
+
+  shell.dataset.redditShellApplied = "true";
+  shell.classList.add("reddit-shell");
+  topbar.classList.add("reddit-topbar");
+  shell.insertBefore(topbar, shell.firstChild);
+
+  const frame = document.createElement("div");
+  frame.className = "reddit-frame";
+
+  const leftRail = document.createElement("aside");
+  leftRail.className = "reddit-leftbar";
+
+  const railCard = document.createElement("section");
+  railCard.className = "glass-card reddit-rail-card";
+  railCard.innerHTML = `
+    <p class="eyebrow">Community</p>
+    <h3>r/PredatorGuard</h3>
+    <p class="hero-text reddit-rail-copy">
+      A Reddit-style workspace for the operational pages this product actually needs.
+    </p>
+    <div id="reddit-rail-profile"></div>
+  `;
+
+  if (nav) {
+    nav.classList.add("reddit-nav");
+    railCard.appendChild(nav);
+  }
+
+  leftRail.appendChild(railCard);
+
+  const mainColumn = document.createElement("div");
+  mainColumn.className = "reddit-main-column";
+  mainColumn.appendChild(hero);
+  mainColumn.appendChild(main);
+
+  const rightRail = document.createElement("aside");
+  rightRail.className = "reddit-rightbar";
+  rightRail.innerHTML = '<div id="reddit-page-sidebar"></div>';
+
+  frame.append(leftRail, mainColumn, rightRail);
+  shell.appendChild(frame);
+
+  renderRedditRailProfile();
+  renderRedditSidebar();
+}
+
 function createNav() {
   const nav = document.getElementById("site-nav");
   if (!nav) {
     return;
   }
+
+  nav.innerHTML = "";
 
   const links = [
     ...pageLinksData,
@@ -4551,8 +4768,11 @@ async function initProtectedPage() {
     console.warn("Quest board unavailable.", error);
   }
 
+  applyProtectedPageShell();
   updateSessionChrome();
   createNav();
+  renderRedditRailProfile();
+  renderRedditSidebar();
   renderReadiness();
   renderProfileCard();
   renderDashboardStats();
