@@ -1,6 +1,7 @@
 const http = require("http");
 const fs = require("fs");
 const fsp = require("fs/promises");
+const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { createClient: createSupabaseClient } = require("@supabase/supabase-js");
@@ -40,7 +41,9 @@ function loadEnvFile(filePath) {
 }
 
 const ROOT_DIR = __dirname;
-const UPLOADS_DIR = path.join(ROOT_DIR, "uploads");
+const IS_VERCEL = Boolean(process.env.VERCEL);
+const RUNTIME_ROOT_DIR = IS_VERCEL ? path.join(process.env.TMPDIR || os.tmpdir(), "predguard") : ROOT_DIR;
+const UPLOADS_DIR = path.join(RUNTIME_ROOT_DIR, "uploads");
 const MISSION_UPLOADS_DIR = path.join(UPLOADS_DIR, "missions");
 loadEnvFile(path.join(ROOT_DIR, ".env"));
 loadEnvFile(path.join(ROOT_DIR, ".env.local"));
@@ -2557,11 +2560,20 @@ async function handleApi(request, response, urlPath) {
 }
 
 async function serveFile(response, filePath) {
-  const extension = path.extname(filePath);
-  const contentType = contentTypes[extension] || "application/octet-stream";
-  const file = await fsp.readFile(filePath);
-  response.writeHead(200, { "Content-Type": contentType });
-  response.end(file);
+  try {
+    const extension = path.extname(filePath);
+    const contentType = contentTypes[extension] || "application/octet-stream";
+    const file = await fsp.readFile(filePath);
+    response.writeHead(200, { "Content-Type": contentType });
+    response.end(file);
+  } catch (error) {
+    if (error?.code === "ENOENT" || error?.code === "ENOTDIR") {
+      sendJson(response, 404, { error: "Not found." });
+      return;
+    }
+
+    throw error;
+  }
 }
 
 async function handlePage(request, response, urlPath) {
@@ -2611,9 +2623,12 @@ async function handlePage(request, response, urlPath) {
     }
 
     const safePath = path.normalize(routePath).replace(/^(\.\.[/\\])+/, "");
-    const absolute = path.join(ROOT_DIR, safePath);
+    const absolute = routePath.startsWith("/uploads/")
+      ? path.join(UPLOADS_DIR, safePath.replace(/^uploads[/\\]?/u, ""))
+      : path.join(ROOT_DIR, safePath);
 
-    if (!absolute.startsWith(ROOT_DIR)) {
+    const expectedRoot = routePath.startsWith("/uploads/") ? UPLOADS_DIR : ROOT_DIR;
+    if (!absolute.startsWith(expectedRoot)) {
       sendJson(response, 403, { error: "Forbidden." });
       return;
     }
@@ -2625,10 +2640,11 @@ async function handlePage(request, response, urlPath) {
   await serveFile(response, path.join(ROOT_DIR, routePath));
 }
 
-const server = http.createServer(async (request, response) => {
+async function handleRequest(request, response) {
   setSecurityHeaders(response);
 
   try {
+    console.log("[request]", request.method, request.url);
     const url = new URL(request.url, `http://${request.headers.host || `${HOST}:${PORT}`}`);
     const pathname = url.pathname;
 
@@ -2639,7 +2655,12 @@ const server = http.createServer(async (request, response) => {
 
     await handlePage(request, response, pathname);
   } catch (error) {
-    console.error(error);
+    console.error("[request failed]", {
+      method: request.method,
+      url: request.url,
+      message: error?.message || String(error),
+      stack: error?.stack || null
+    });
     if (!response.headersSent) {
       sendJson(response, 500, { error: error.message || "Internal server error." });
       return;
@@ -2647,16 +2668,25 @@ const server = http.createServer(async (request, response) => {
 
     response.end();
   }
-});
+}
 
-ensureDataProvider()
-  .then(() => {
-    server.listen(PORT, HOST, () => {
-      console.log(`PredatorGuard server running at http://${HOST}:${PORT}`);
-      console.log("Auth provider: Supabase");
-    });
-  })
-  .catch((error) => {
+const server = http.createServer(handleRequest);
+
+async function startServer() {
+  await ensureDataProvider();
+  server.listen(PORT, HOST, () => {
+    console.log(`PredatorGuard server running at http://${HOST}:${PORT}`);
+    console.log("Auth provider: Supabase");
+  });
+}
+
+module.exports = handleRequest;
+module.exports.handleRequest = handleRequest;
+module.exports.startServer = startServer;
+
+if (require.main === module) {
+  startServer().catch((error) => {
     console.error("Failed to initialize auth provider.", error);
     process.exitCode = 1;
   });
+}
