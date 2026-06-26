@@ -465,18 +465,32 @@ function normalizeQuestBoardPayload(payload) {
 
 function getPageUrl(pageName) {
   const rawTarget = String(pageName || "").trim() || "/";
+  if (/^(?:[a-z]+:)?\/\//iu.test(rawTarget)) {
+    return rawTarget;
+  }
+
   const normalizedTarget = rawTarget.replace(/^\.\//u, "/");
   const routeConfig =
     ROUTE_PAGE_LOOKUP.get(rawTarget) ||
     ROUTE_PAGE_LOOKUP.get(normalizedTarget) ||
     ROUTE_PAGE_LOOKUP.get(`/${normalizedTarget.replace(/^\//u, "")}`);
-  const useLegacyPath = window.location.protocol === "file:";
+  const currentPathSegments = window.location.pathname.split("/").filter(Boolean);
+  const firstPathSegment = currentPathSegments[0] ? `/${currentPathSegments[0]}` : "";
+  const githubPagesBasePath =
+    window.location.hostname.endsWith("github.io") &&
+    firstPathSegment &&
+    !ROUTE_PAGE_LOOKUP.has(firstPathSegment)
+      ? firstPathSegment
+      : "";
+  const useLegacyPath =
+    window.location.protocol === "file:" || window.location.hostname.endsWith("github.io");
   const path = routeConfig
     ? useLegacyPath
-      ? routeConfig.legacyPath.replace(/^\//u, "")
+      ? `${githubPagesBasePath}${routeConfig.legacyPath}`
       : routeConfig.routePath
     : rawTarget;
-  return new URL(path, window.location.href).toString();
+  const resolvedPath = useLegacyPath ? path : path.replace(/^(?!\/)/u, "/");
+  return new URL(resolvedPath, window.location.origin).toString();
 }
 
 function goToPage(pageName) {
@@ -4614,7 +4628,9 @@ async function initProtectedPage() {
 async function init() {
   if (!PUBLIC_PAGE_KEYS.has(currentPage || "auth")) {
     const canonicalRoute = LEGACY_PAGE_LOOKUP.get(window.location.pathname);
-    if (canonicalRoute && window.location.protocol !== "file:") {
+    const shouldUseLegacyPaths =
+      window.location.protocol === "file:" || window.location.hostname.endsWith("github.io");
+    if (canonicalRoute && !shouldUseLegacyPaths) {
       window.history.replaceState(
         {},
         "",
