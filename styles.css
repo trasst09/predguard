@@ -634,6 +634,15 @@ input,
   text-decoration: none;
 }
 
+.text-button {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+}
+
 .compact-button {
   padding: 10px 14px;
 }
@@ -733,6 +742,69 @@ input,
 .quest-progress-form {
   display: grid;
   gap: 14px;
+}
+
+.mission-media-block,
+.mission-discussion-panel {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 18px;
+  border: 1px solid rgba(135, 186, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.mission-media-head,
+.mission-comment-head,
+.mission-discussion-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+}
+
+.mission-media-head span,
+.mission-comment-head span,
+.mission-attachment-meta span,
+.mission-attachment-empty,
+.mission-comment-empty {
+  color: var(--muted);
+}
+
+.mission-attachment-grid,
+.mission-comment-list {
+  display: grid;
+  gap: 12px;
+}
+
+.mission-attachment-card,
+.mission-comment {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  border: 1px solid rgba(135, 186, 255, 0.12);
+  background: rgba(3, 10, 18, 0.32);
+}
+
+.mission-attachment-preview img,
+.mission-attachment-preview video {
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(135, 186, 255, 0.1);
+  background: rgba(3, 10, 18, 0.7);
+}
+
+.mission-attachment-meta {
+  display: grid;
+  gap: 4px;
+}
+
+.mission-comment p {
+  color: var(--muted);
+  line-height: 1.6;
 }
 
 .quest-progress-meter {

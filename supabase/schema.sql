@@ -54,6 +54,8 @@ create table if not exists public.user_quests (
   status text not null default 'accepted' check (status in ('accepted', 'submitted', 'needs_revision', 'confirmed')),
   progress_percent integer not null default 0 check (progress_percent >= 0 and progress_percent <= 100),
   notes text not null default '',
+  submission_text text not null default '',
+  submission_attachments jsonb not null default '[]'::jsonb,
   xp_reward integer not null default 0 check (xp_reward >= 0),
   readiness_reward integer not null default 0 check (readiness_reward >= 0),
   started_at timestamptz not null default timezone('utc', now()),
@@ -66,6 +68,15 @@ create table if not exists public.user_quests (
   created_at timestamptz not null default timezone('utc', now()),
   updated_at timestamptz not null default timezone('utc', now()),
   unique (user_id, mission_id)
+);
+
+create table if not exists public.mission_comments (
+  id uuid primary key default gen_random_uuid(),
+  mission_id text not null references public.missions(id) on delete cascade,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  message text not null default '',
+  created_at timestamptz not null default timezone('utc', now()),
+  updated_at timestamptz not null default timezone('utc', now())
 );
 
 create table if not exists public.identity_verifications (
@@ -118,6 +129,8 @@ alter table public.user_quests add column if not exists reward_granted_at timest
 alter table public.user_quests add column if not exists confirmed_at timestamptz;
 alter table public.user_quests add column if not exists confirmed_by uuid references public.profiles(id) on delete set null;
 alter table public.user_quests add column if not exists confirmation_notes text not null default '';
+alter table public.user_quests add column if not exists submission_text text not null default '';
+alter table public.user_quests add column if not exists submission_attachments jsonb not null default '[]'::jsonb;
 
 create or replace function public.set_profiles_updated_at()
 returns trigger
@@ -157,10 +170,18 @@ before update on public.identity_verifications
 for each row
 execute function public.set_profiles_updated_at();
 
+drop trigger if exists mission_comments_set_updated_at on public.mission_comments;
+
+create trigger mission_comments_set_updated_at
+before update on public.mission_comments
+for each row
+execute function public.set_profiles_updated_at();
+
 alter table public.profiles enable row level security;
 alter table public.missions enable row level security;
 alter table public.user_quests enable row level security;
 alter table public.identity_verifications enable row level security;
+alter table public.mission_comments enable row level security;
 
 drop policy if exists "Profiles are readable by service role only" on public.profiles;
 create policy "Profiles are readable by service role only"
@@ -256,6 +277,35 @@ on public.user_quests
 for update
 to authenticated
 using (auth.uid() = user_id)
+with check (auth.uid() = user_id);
+
+drop policy if exists "Mission comments are readable by service role only" on public.mission_comments;
+create policy "Mission comments are readable by service role only"
+on public.mission_comments
+for select
+to service_role
+using (true);
+
+drop policy if exists "Mission comments are writable by service role only" on public.mission_comments;
+create policy "Mission comments are writable by service role only"
+on public.mission_comments
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists "Authenticated users can read mission comments" on public.mission_comments;
+create policy "Authenticated users can read mission comments"
+on public.mission_comments
+for select
+to authenticated
+using (true);
+
+drop policy if exists "Authenticated users can create mission comments" on public.mission_comments;
+create policy "Authenticated users can create mission comments"
+on public.mission_comments
+for insert
+to authenticated
 with check (auth.uid() = user_id);
 
 drop policy if exists "Identity verifications are readable by service role only" on public.identity_verifications;

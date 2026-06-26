@@ -212,6 +212,10 @@ let authTransportPromise = null;
 let browserSupabaseClient = null;
 let identityVerificationRecord = null;
 let adminIdentityRecords = [];
+let missionCommentsByMissionId = {};
+
+const MAX_MISSION_ATTACHMENTS = 4;
+const MAX_MISSION_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 
 function getRuntimeConfig() {
   const config = window.PREDGUARD_CONFIG || {};
@@ -225,6 +229,85 @@ function getRuntimeConfig() {
       config.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY ||
       ""
   };
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes < 1024) {
+    return `${Math.max(0, Math.round(bytes || 0))} B`;
+  }
+
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`;
+  }
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function isMissionMediaFile(file) {
+  return Boolean(file?.type?.startsWith("image/") || file?.type?.startsWith("video/"));
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error(`Unable to read ${file.name}.`));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function buildMissionAttachmentPayload(fileInput, existingAttachments = []) {
+  const selectedFiles = Array.from(fileInput?.files || []);
+  const totalCount = existingAttachments.length + selectedFiles.length;
+  if (totalCount > MAX_MISSION_ATTACHMENTS) {
+    throw new Error(`You can keep up to ${MAX_MISSION_ATTACHMENTS} attachments per mission.`);
+  }
+
+  for (const file of selectedFiles) {
+    if (!isMissionMediaFile(file)) {
+      throw new Error("Only image and video files are supported.");
+    }
+    if (file.size > MAX_MISSION_ATTACHMENT_BYTES) {
+      throw new Error(`Each attachment must be 8 MB or smaller. ${file.name} is too large.`);
+    }
+  }
+
+  const newAttachments = await Promise.all(
+    selectedFiles.map(async (file) => ({
+      name: file.name,
+      dataUrl: await readFileAsDataUrl(file)
+    }))
+  );
+
+  return [...existingAttachments, ...newAttachments];
+}
+
+function buildSubmissionAttachmentMarkup(attachments = [], removable = false) {
+  if (!attachments.length) {
+    return '<div class="mission-attachment-empty">No photos or videos uploaded yet.</div>';
+  }
+
+  return attachments
+    .map((attachment, index) => {
+      const preview =
+        attachment.kind === "image"
+          ? `<img src="${escapeHtml(attachment.url)}" alt="${escapeHtml(attachment.name)}" />`
+          : `<video controls preload="metadata" src="${escapeHtml(attachment.url)}"></video>`;
+      const removeButton = removable
+        ? `<button class="text-button" data-remove-attachment="${index}" type="button">Remove</button>`
+        : "";
+      return `
+        <article class="mission-attachment-card">
+          <div class="mission-attachment-preview">${preview}</div>
+          <div class="mission-attachment-meta">
+            <strong>${escapeHtml(attachment.name || "Attachment")}</strong>
+            <span>${escapeHtml(attachment.kind || "media")} · ${formatBytes(attachment.size)}</span>
+          </div>
+          ${removeButton}
+        </article>
+      `;
+    })
+    .join("");
 }
 
 const runtimeConfig = getRuntimeConfig();
@@ -1312,6 +1395,10 @@ async function listBrowserUserQuests(client, userId) {
     status: record.status,
     progressPercent: record.progress_percent,
     notes: record.notes || "",
+    submissionText: record.submission_text || "",
+    submissionAttachments: Array.isArray(record.submission_attachments)
+      ? record.submission_attachments
+      : [],
     xpReward: record.xp_reward,
     readinessReward: record.readiness_reward,
     startedAt: record.started_at,
@@ -1364,6 +1451,8 @@ async function claimBrowserQuest(body) {
     status: "accepted",
     progress_percent: 0,
     notes: "",
+    submission_text: "",
+    submission_attachments: [],
     xp_reward: mission.xpReward,
     readiness_reward: mission.readinessReward,
     confirmation_notes: ""
@@ -1402,6 +1491,18 @@ async function updateBrowserQuest(body, questId) {
   const patch = {};
   if (body.notes !== undefined) {
     patch.notes = String(body.notes || "").trim().slice(0, 2000);
+  }
+
+  if (body.submissionText !== undefined) {
+    patch.submission_text = String(body.submissionText || "").trim().slice(0, 4000);
+  }
+
+  if (Array.isArray(body.submissionAttachments) && body.submissionAttachments.some((item) => item?.dataUrl)) {
+    throw new Error("Photo and video uploads require the Node server deployment.");
+  }
+
+  if (Array.isArray(body.submissionAttachments)) {
+    patch.submission_attachments = body.submissionAttachments;
   }
 
   if (body.progressPercent !== undefined) {
@@ -1520,6 +1621,62 @@ async function requestBrowserJson(url, options = {}) {
   }
 
   throw new Error("Request failed.");
+}
+
+async function ensureMissionCommentsLoaded(missionId) {
+  if (!missionId) {
+    return [];
+  }
+
+  if (Array.isArray(missionCommentsByMissionId[missionId])) {
+    return missionCommentsByMissionId[missionId];
+  }
+
+  const payload = await requestJson(`/api/missions/${missionId}/comments`, { method: "GET" });
+  missionCommentsByMissionId[missionId] = Array.isArray(payload.comments) ? payload.comments : [];
+  return missionCommentsByMissionId[missionId];
+}
+
+function renderMissionComments(container, missionId) {
+  if (!container) {
+    return;
+  }
+
+  const comments = Array.isArray(missionCommentsByMissionId[missionId])
+    ? missionCommentsByMissionId[missionId]
+    : null;
+
+  if (!comments) {
+    container.innerHTML = '<div class="mission-comment-empty">Loading mission discussion...</div>';
+    return;
+  }
+
+  container.innerHTML = comments.length
+    ? comments
+        .map(
+          (comment) => `
+            <article class="mission-comment">
+              <div class="mission-comment-head">
+                <strong>${escapeHtml(comment.user?.displayName || "Guardian")}</strong>
+                <span>${escapeHtml(comment.user?.role || "Member")} · ${new Date(
+                  comment.createdAt
+                ).toLocaleString()}</span>
+              </div>
+              <p>${escapeHtml(comment.message)}</p>
+            </article>
+          `
+        )
+        .join("")
+    : '<div class="mission-comment-empty">No discussion yet. Start the thread for this mission.</div>';
+}
+
+async function postMissionComment(missionId, message) {
+  const payload = await requestJson(`/api/missions/${missionId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ message })
+  });
+  missionCommentsByMissionId[missionId] = Array.isArray(payload.comments) ? payload.comments : [];
+  return missionCommentsByMissionId[missionId];
 }
 
 function setFeedback(targetId, message, type = "info") {
@@ -2353,11 +2510,19 @@ async function handleQuestSave(questId, form, shouldSubmit = false) {
   const notes = form.elements.notes.value;
 
   try {
+    const submissionText = form.elements.submissionText.value;
+    const existingAttachments = parseJsonBody(form.elements.existingAttachments.value) || [];
+    const submissionAttachments = await buildMissionAttachmentPayload(
+      form.elements.submissionFiles,
+      existingAttachments
+    );
     const payload = await requestJson(`/api/quests/${questId}`, {
       method: "PATCH",
       body: JSON.stringify({
         progressPercent: shouldSubmit ? 100 : progress,
         notes,
+        submissionText,
+        submissionAttachments,
         status: shouldSubmit ? "submitted" : "accepted"
       })
     });
@@ -2403,6 +2568,9 @@ function renderMyQuests() {
     const isConfirmed = assignment.status === "confirmed";
     const isSubmitted = assignment.status === "submitted";
     const isLocked = statusMeta.userLocked;
+    const attachments = Array.isArray(assignment.submissionAttachments)
+      ? assignment.submissionAttachments
+      : [];
     card.innerHTML = `
       <div class="mission-topline">
         <span class="mission-type">${escapeHtml(mission.type.replace("realworld", "real-world"))}</span>
@@ -2436,6 +2604,28 @@ function renderMyQuests() {
           )}</textarea>
         </label>
         <label>
+          Mission submission
+          <textarea name="submissionText" rows="4" placeholder="Add the mission write-up, what you observed, and anything reviewers should know." ${
+            isLocked ? "disabled" : ""
+          }>${escapeHtml(assignment.submissionText || "")}</textarea>
+        </label>
+        <input name="existingAttachments" type="hidden" value="${escapeHtml(
+          JSON.stringify(attachments)
+        )}" />
+        <div class="mission-media-block">
+          <div class="mission-media-head">
+            <strong>Photos and videos</strong>
+            <span>${attachments.length}/${MAX_MISSION_ATTACHMENTS} attached</span>
+          </div>
+          <div class="mission-attachment-grid">${buildSubmissionAttachmentMarkup(attachments, !isLocked)}</div>
+          <label>
+            Add media
+            <input name="submissionFiles" type="file" accept="image/*,video/*" multiple ${
+              isLocked ? "disabled" : ""
+            } />
+          </label>
+        </div>
+        <label>
           Confirmer notes
           <textarea name="confirmationNotes" rows="3" disabled>${escapeHtml(
             assignment.confirmationNotes || "No confirmer notes yet."
@@ -2464,6 +2654,25 @@ function renderMyQuests() {
                 : "Update progress and notes as you work."
         }</div>
       </form>
+      <section class="mission-discussion-panel">
+        <div class="mission-discussion-head">
+          <div>
+            <p class="profile-label">Mission forum</p>
+            <strong>Mission thread</strong>
+          </div>
+        </div>
+        <div class="mission-comment-list" data-mission-comments="${assignment.missionId}"></div>
+        <form class="mission-comment-form" data-mission-id="${assignment.missionId}">
+          <label>
+            Add message
+            <textarea name="message" rows="3" placeholder="Share context, ask a question, or post an update."></textarea>
+          </label>
+          <div class="quest-actions">
+            <button class="secondary-button" type="submit">Post to thread</button>
+          </div>
+          <div class="form-feedback"></div>
+        </form>
+      </section>
     `;
 
     const form = card.querySelector(".quest-progress-form");
@@ -2475,6 +2684,27 @@ function renderMyQuests() {
       slider.addEventListener("input", () => {
         value.textContent = `${slider.value}% complete`;
         meter.style.width = `${slider.value}%`;
+      });
+    }
+
+    const attachmentsInput = form.elements.existingAttachments;
+    const attachmentsGrid = card.querySelector(".mission-attachment-grid");
+    const fileInput = form.elements.submissionFiles;
+    if (attachmentsInput && attachmentsGrid) {
+      attachmentsGrid.addEventListener("click", (event) => {
+        const button = event.target.closest("[data-remove-attachment]");
+        if (!button || isLocked) {
+          return;
+        }
+
+        const current = parseJsonBody(attachmentsInput.value) || [];
+        current.splice(Number(button.dataset.removeAttachment), 1);
+        attachmentsInput.value = JSON.stringify(current);
+        attachmentsGrid.innerHTML = buildSubmissionAttachmentMarkup(current, !isLocked);
+        const mediaHead = card.querySelector(".mission-media-head span");
+        if (mediaHead) {
+          mediaHead.textContent = `${current.length}/${MAX_MISSION_ATTACHMENTS} attached`;
+        }
       });
     }
 
@@ -2491,6 +2721,50 @@ function renderMyQuests() {
         await handleQuestSave(assignment.id, form, true);
       });
     }
+
+    const commentList = card.querySelector(`[data-mission-comments="${assignment.missionId}"]`);
+    const commentForm = card.querySelector(`.mission-comment-form[data-mission-id="${assignment.missionId}"]`);
+    if (commentList) {
+      renderMissionComments(commentList, assignment.missionId);
+      ensureMissionCommentsLoaded(assignment.missionId)
+        .then(() => renderMissionComments(commentList, assignment.missionId))
+        .catch((error) => {
+          commentList.innerHTML = `<div class="mission-comment-empty">${escapeHtml(error.message)}</div>`;
+        });
+    }
+
+    commentForm?.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const feedback = commentForm.querySelector(".form-feedback");
+      const message = commentForm.elements.message.value.trim();
+      if (!message) {
+        if (feedback) {
+          feedback.textContent = "Enter a message before posting.";
+          feedback.className = "form-feedback error";
+        }
+        return;
+      }
+
+      if (feedback) {
+        feedback.textContent = "Posting update...";
+        feedback.className = "form-feedback";
+      }
+
+      try {
+        await postMissionComment(assignment.missionId, message);
+        commentForm.reset();
+        renderMissionComments(commentList, assignment.missionId);
+        if (feedback) {
+          feedback.textContent = "Posted to mission thread.";
+          feedback.className = "form-feedback success";
+        }
+      } catch (error) {
+        if (feedback) {
+          feedback.textContent = error.message;
+          feedback.className = "form-feedback error";
+        }
+      }
+    });
 
     list.appendChild(card);
   });
@@ -4643,6 +4917,19 @@ function buildAdminQuestCard(record) {
         <div class="span-two-field">
           <p class="profile-label">Member notes</p>
           <strong>${escapeHtml(record.notes || "No member notes yet.")}</strong>
+        </div>
+      </div>
+      <div class="profile-card admin-identity-profile">
+        <div class="span-two-field">
+          <p class="profile-label">Submission text</p>
+          <strong>${escapeHtml(record.submissionText || "No mission submission text yet.")}</strong>
+        </div>
+        <div class="span-two-field">
+          <p class="profile-label">Media uploads</p>
+          <div class="mission-attachment-grid">${buildSubmissionAttachmentMarkup(
+            record.submissionAttachments || [],
+            false
+          )}</div>
         </div>
       </div>
       <form class="admin-quest-form">

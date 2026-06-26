@@ -40,6 +40,8 @@ function loadEnvFile(filePath) {
 }
 
 const ROOT_DIR = __dirname;
+const UPLOADS_DIR = path.join(ROOT_DIR, "uploads");
+const MISSION_UPLOADS_DIR = path.join(UPLOADS_DIR, "missions");
 loadEnvFile(path.join(ROOT_DIR, ".env"));
 loadEnvFile(path.join(ROOT_DIR, ".env.local"));
 const HOST = process.env.HOST || "127.0.0.1";
@@ -60,6 +62,10 @@ const IDENTITY_STATUSES = new Set([
 const QUEST_USER_STATUSES = new Set(["accepted", "submitted"]);
 const QUEST_ADMIN_STATUSES = new Set(["submitted", "needs_revision", "confirmed"]);
 const ID_DOCUMENT_TYPES = new Set(["unset", "drivers_license", "state_id", "passport", "other"]);
+const ATTACHMENT_KINDS = new Set(["image", "video"]);
+const MAX_ATTACHMENT_COUNT = 4;
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MAX_COMMENT_LENGTH = 1200;
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY =
   process.env.SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY || "";
@@ -132,11 +138,16 @@ const contentTypes = {
   ".css": "text/css; charset=utf-8",
   ".html": "text/html; charset=utf-8",
   ".js": "application/javascript; charset=utf-8",
+  ".jpeg": "image/jpeg",
+  ".jpg": "image/jpeg",
   ".json": "application/json; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
+  ".mp4": "video/mp4",
+  ".mov": "video/quicktime",
   ".png": "image/png",
   ".sql": "text/plain; charset=utf-8",
-  ".svg": "image/svg+xml"
+  ".svg": "image/svg+xml",
+  ".webm": "video/webm"
 };
 
 const ROLE_OPTIONS = [
@@ -341,6 +352,8 @@ function mapUserQuest(record) {
     status: record.status,
     progressPercent: record.progress_percent,
     notes: record.notes || "",
+    submissionText: record.submission_text || "",
+    submissionAttachments: normalizeStoredAttachments(record.submission_attachments),
     xpReward: record.xp_reward,
     readinessReward: record.readiness_reward,
     startedAt: record.started_at,
@@ -353,6 +366,150 @@ function mapUserQuest(record) {
     createdAt: record.created_at,
     updatedAt: record.updated_at
   };
+}
+
+function mapMissionComment(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    missionId: record.mission_id,
+    userId: record.user_id,
+    message: record.message || "",
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function normalizeStoredAttachments(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((entry) => {
+      const url = sanitizeMissionText(entry?.url, 400, "");
+      const name = sanitizeMissionText(entry?.name, 160, "attachment");
+      const kind = sanitizeMissionText(entry?.kind, 12, "");
+      const mimeType = sanitizeMissionText(entry?.mimeType, 120, "");
+      const size = Number(entry?.size);
+      if (!url || !ATTACHMENT_KINDS.has(kind) || !mimeType || !Number.isFinite(size) || size < 0) {
+        return null;
+      }
+
+      return {
+        url,
+        name,
+        kind,
+        mimeType,
+        size: Math.round(size)
+      };
+    })
+    .filter(Boolean);
+}
+
+function getAttachmentKind(mimeType) {
+  if (mimeType.startsWith("image/")) {
+    return "image";
+  }
+  if (mimeType.startsWith("video/")) {
+    return "video";
+  }
+  return "";
+}
+
+function getExtensionFromMimeType(mimeType) {
+  switch (mimeType) {
+    case "image/jpeg":
+      return ".jpg";
+    case "image/png":
+      return ".png";
+    case "image/webp":
+      return ".webp";
+    case "image/gif":
+      return ".gif";
+    case "video/mp4":
+      return ".mp4";
+    case "video/quicktime":
+      return ".mov";
+    case "video/webm":
+      return ".webm";
+    default:
+      return "";
+  }
+}
+
+function parseDataUrlAttachment(dataUrl) {
+  const match = String(dataUrl || "").match(/^data:([^;]+);base64,(.+)$/u);
+  if (!match) {
+    throw new Error("Attachment payload is invalid.");
+  }
+
+  const mimeType = sanitizeMissionText(match[1], 120, "").toLowerCase();
+  const kind = getAttachmentKind(mimeType);
+  if (!ATTACHMENT_KINDS.has(kind)) {
+    throw new Error("Only image and video uploads are supported.");
+  }
+
+  const buffer = Buffer.from(match[2], "base64");
+  if (!buffer.length || buffer.length > MAX_ATTACHMENT_BYTES) {
+    throw new Error("Each attachment must be between 1 byte and 8 MB.");
+  }
+
+  return {
+    mimeType,
+    kind,
+    buffer
+  };
+}
+
+async function persistSubmissionAttachments(userId, missionId, attachments) {
+  if (attachments === undefined) {
+    return undefined;
+  }
+
+  if (!Array.isArray(attachments)) {
+    throw new Error("Submission attachments must be an array.");
+  }
+
+  if (attachments.length > MAX_ATTACHMENT_COUNT) {
+    throw new Error(`You can upload up to ${MAX_ATTACHMENT_COUNT} attachments per mission.`);
+  }
+
+  await fsp.mkdir(MISSION_UPLOADS_DIR, { recursive: true });
+
+  const stored = [];
+  for (const entry of attachments) {
+    if (entry?.url) {
+      const existing = normalizeStoredAttachments([entry])[0];
+      if (!existing || !existing.url.startsWith("/uploads/missions/")) {
+        throw new Error("Existing attachment references are invalid.");
+      }
+      stored.push(existing);
+      continue;
+    }
+
+    const name = sanitizeMissionText(entry?.name, 160, "attachment");
+    const parsed = parseDataUrlAttachment(entry?.dataUrl);
+    const extension = getExtensionFromMimeType(parsed.mimeType);
+    const safeMissionId = slugifyMissionId(missionId);
+    const filename = `${safeMissionId}-${userId}-${Date.now().toString(36)}-${crypto
+      .randomBytes(6)
+      .toString("hex")}${extension}`;
+    const filePath = path.join(MISSION_UPLOADS_DIR, filename);
+    await fsp.writeFile(filePath, parsed.buffer);
+    stored.push({
+      url: `/uploads/missions/${filename}`,
+      name,
+      kind: parsed.kind,
+      mimeType: parsed.mimeType,
+      size: parsed.buffer.length
+    });
+  }
+
+  return stored;
 }
 
 function getQuestStatusMeta(status) {
@@ -1074,6 +1231,26 @@ async function supabaseCountMissionAssignments(missionId) {
   return count || 0;
 }
 
+async function supabaseListMissionComments(missionId) {
+  const { data, error } = await supabaseAdmin
+    .from("mission_comments")
+    .select("*")
+    .eq("mission_id", missionId)
+    .order("created_at", { ascending: true });
+  throwIfSupabaseError(error, "Unable to load mission discussion.");
+  return data.map(mapMissionComment);
+}
+
+async function supabaseCreateMissionComment(comment) {
+  const { data, error } = await supabaseAdmin
+    .from("mission_comments")
+    .insert(comment)
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to post to mission discussion.");
+  return mapMissionComment(data);
+}
+
 async function supabaseListAllUserQuests() {
   const { data, error } = await supabaseAdmin.from("user_quests").select("*").order("updated_at", {
     ascending: false
@@ -1103,6 +1280,8 @@ async function supabaseCreateUserQuest(userId, mission) {
       status: "accepted",
       progress_percent: 0,
       notes: "",
+      submission_text: "",
+      submission_attachments: [],
       xp_reward: mission.xpReward,
       readiness_reward: mission.readinessReward,
       confirmation_notes: ""
@@ -1554,6 +1733,43 @@ async function listAdminMissions() {
   return listMissionCatalog({ includeInactive: true });
 }
 
+async function listMissionComments(missionId) {
+  if (!hasSupabaseConfig) {
+    return [];
+  }
+
+  const [comments, users] = await Promise.all([supabaseListMissionComments(missionId), listUsers()]);
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  return comments.map((comment) => ({
+    ...comment,
+    user: usersById.get(comment.userId) || null
+  }));
+}
+
+async function createMissionComment(user, missionId, message) {
+  if (!hasSupabaseConfig) {
+    throw new Error("Mission discussion requires the Node/Supabase deployment.");
+  }
+
+  const mission = await getMissionCatalogEntryById(missionId);
+  if (!mission || mission.isActive === false) {
+    throw new Error("Mission not found.");
+  }
+
+  const trimmedMessage = String(message || "").trim().slice(0, MAX_COMMENT_LENGTH);
+  if (!trimmedMessage) {
+    throw new Error("A message is required.");
+  }
+
+  await supabaseCreateMissionComment({
+    mission_id: missionId,
+    user_id: user.id,
+    message: trimmedMessage
+  });
+
+  return listMissionComments(missionId);
+}
+
 async function createMission(adminUser, body) {
   if (!hasSupabaseConfig) {
     throw new Error("Mission management requires the Node/Supabase deployment.");
@@ -1647,6 +1863,19 @@ async function updateQuest(user, questId, updates) {
   const patch = {};
   if (updates.notes !== undefined) {
     patch.notes = String(updates.notes || "").trim().slice(0, 2000);
+  }
+
+  if (updates.submissionText !== undefined) {
+    patch.submission_text = String(updates.submissionText || "").trim().slice(0, 4000);
+  }
+
+  const nextAttachments = await persistSubmissionAttachments(
+    user.id,
+    existingQuest.missionId,
+    updates.submissionAttachments
+  );
+  if (nextAttachments !== undefined) {
+    patch.submission_attachments = nextAttachments;
   }
 
   if (updates.progressPercent !== undefined) {
@@ -2045,10 +2274,23 @@ async function handleQuestUpdate(request, response, currentUser, questId) {
   const body = await parseBody(request);
   const payload = await updateQuest(currentUser, questId, {
     notes: body.notes,
+    submissionText: body.submissionText,
+    submissionAttachments: body.submissionAttachments,
     progressPercent: body.progressPercent,
     status: body.status
   });
   sendJson(response, 200, payload);
+}
+
+async function handleMissionCommentsList(response, missionId) {
+  const comments = await listMissionComments(missionId);
+  sendJson(response, 200, { comments });
+}
+
+async function handleMissionCommentCreate(request, response, currentUser, missionId) {
+  const body = await parseBody(request);
+  const comments = await createMissionComment(currentUser, missionId, body.message);
+  sendJson(response, 201, { comments });
 }
 
 async function handleApi(request, response, urlPath) {
@@ -2180,6 +2422,28 @@ async function handleApi(request, response, urlPath) {
 
     const questId = urlPath.split("/").pop();
     await handleQuestUpdate(request, response, user, questId);
+    return;
+  }
+
+  if (urlPath.match(/^\/api\/missions\/[^/]+\/comments$/u) && request.method === "GET") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    const missionId = urlPath.split("/")[3];
+    await handleMissionCommentsList(response, missionId);
+    return;
+  }
+
+  if (urlPath.match(/^\/api\/missions\/[^/]+\/comments$/u) && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    const missionId = urlPath.split("/")[3];
+    await handleMissionCommentCreate(request, response, user, missionId);
     return;
   }
 
@@ -2341,6 +2605,11 @@ async function handlePage(request, response, urlPath) {
   }
 
   if (!publicRoutes.has(routePath) && !protectedRoutes.has(routePath)) {
+    if (routePath.startsWith("/uploads/missions/") && !user) {
+      sendRedirect(response, "/");
+      return;
+    }
+
     const safePath = path.normalize(routePath).replace(/^(\.\.[/\\])+/, "");
     const absolute = path.join(ROOT_DIR, safePath);
 
