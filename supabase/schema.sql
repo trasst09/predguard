@@ -275,6 +275,19 @@ with check (
   )
 );
 
+drop policy if exists "Admins can delete missions" on public.missions;
+create policy "Admins can delete missions"
+on public.missions
+for delete
+to authenticated
+using (
+  exists (
+    select 1
+    from public.profiles
+    where id = auth.uid() and is_admin = true
+  )
+);
+
 drop policy if exists "User quests are readable by service role only" on public.user_quests;
 create policy "User quests are readable by service role only"
 on public.user_quests

@@ -1452,6 +1452,40 @@ async function updateBrowserAdminMission(body, missionId) {
   return { mission: mapBrowserMissionRecord(data) };
 }
 
+async function deleteBrowserAdminMission(missionId) {
+  const client = await getBrowserSupabaseClient();
+  await ensureBrowserAdminSession();
+  const { data: existing, error: existingError } = await client
+    .from("missions")
+    .select("id")
+    .eq("id", missionId)
+    .maybeSingle();
+  if (existingError) {
+    throw new Error(existingError.message || "Unable to load the mission.");
+  }
+  if (!existing) {
+    throw new Error("Mission not found.");
+  }
+
+  const { count, error: countError } = await client
+    .from("user_quests")
+    .select("id", { count: "exact", head: true })
+    .eq("mission_id", missionId);
+  if (countError) {
+    throw new Error(countError.message || "Unable to check mission assignments.");
+  }
+  if ((count || 0) > 0) {
+    throw new Error("This mission already has assignments. Set it inactive instead of deleting it.");
+  }
+
+  const { error } = await client.from("missions").delete().eq("id", missionId);
+  if (error) {
+    throw new Error(error.message || "Unable to delete the mission.");
+  }
+
+  return { ok: true };
+}
+
 async function getBrowserIdentityVerification() {
   const client = await getBrowserSupabaseClient();
   const sessionPayload = await getBrowserSessionPayload();
@@ -1890,6 +1924,10 @@ async function requestBrowserJson(url, options = {}) {
 
   if (url.startsWith("/api/admin/missions/") && options.method === "PATCH") {
     return updateBrowserAdminMission(body, url.split("/").pop());
+  }
+
+  if (url.startsWith("/api/admin/missions/") && options.method === "DELETE") {
+    return deleteBrowserAdminMission(url.split("/").pop());
   }
 
   if (url.startsWith("/api/admin/")) {
@@ -4615,6 +4653,20 @@ function buildAdminUserCard(user) {
   `;
 }
 
+function renderAdminStatCards(items) {
+  return items
+    .map(
+      (item) => `
+        <article class="stat-card">
+          <p>${escapeHtml(item.label)}</p>
+          <strong>${escapeHtml(item.value)}</strong>
+          <span>${escapeHtml(item.detail)}</span>
+        </article>
+      `
+    )
+    .join("");
+}
+
 function renderAdminSummary() {
   const summary = document.getElementById("admin-summary");
   if (!summary) {
@@ -4623,23 +4675,23 @@ function renderAdminSummary() {
 
   if (browserAdminMissionMode) {
     const activeMissionCount = adminMissionRecords.filter((mission) => mission.isActive !== false).length;
-    summary.innerHTML = `
-      <article class="stat-card">
-        <p>Admin console</p>
-        <strong>Browser mission mode</strong>
-        <span>Static hosting can create and edit mission briefs through Supabase.</span>
-      </article>
-      <article class="stat-card">
-        <p>Persisted briefs</p>
-        <strong>${adminMissionRecords.length}</strong>
-        <span>Mission records available to authenticated users.</span>
-      </article>
-      <article class="stat-card">
-        <p>Active missions</p>
-        <strong>${activeMissionCount}</strong>
-        <span>Currently open mission briefs on the board.</span>
-      </article>
-    `;
+    summary.innerHTML = renderAdminStatCards([
+      {
+        label: "Admin console",
+        value: "Browser mission mode",
+        detail: "Static hosting can manage mission briefs through Supabase."
+      },
+      {
+        label: "Persisted briefs",
+        value: adminMissionRecords.length,
+        detail: "Mission records available to authenticated users."
+      },
+      {
+        label: "Active missions",
+        value: activeMissionCount,
+        detail: "Currently open mission briefs on the board."
+      }
+    ]);
     return;
   }
 
@@ -4650,33 +4702,17 @@ function renderAdminSummary() {
   const activeMissionCount = adminMissionRecords.filter((mission) => mission.isActive !== false).length;
   const submittedQuestCount = adminQuestRecords.filter((quest) => quest.status === "submitted").length;
 
-  summary.innerHTML = `
-    <article class="stat-card">
-      <p>Total accounts</p>
-      <strong>${adminUsers.length}</strong>
-      <span>Stored account profiles</span>
-    </article>
-    <article class="stat-card">
-      <p>Verified members</p>
-      <strong>${verifiedCount}</strong>
-      <span>ID-complete or officer-approved</span>
-    </article>
-    <article class="stat-card">
-      <p>Active missions</p>
-      <strong>${activeMissionCount}</strong>
-      <span>Mission briefs available to members</span>
-    </article>
-    <article class="stat-card">
-      <p>Quest reviews</p>
-      <strong>${submittedQuestCount}</strong>
-      <span>Submitted quests waiting on confirmation</span>
-    </article>
-    <article class="stat-card">
-      <p>Admin users</p>
-      <strong>${adminCount}</strong>
-      <span>Accounts with elevated access</span>
-    </article>
-  `;
+  summary.innerHTML = renderAdminStatCards([
+    { label: "Total accounts", value: adminUsers.length, detail: "Stored account profiles" },
+    { label: "Verified members", value: verifiedCount, detail: "ID-complete or officer-approved" },
+    { label: "Active missions", value: activeMissionCount, detail: "Mission briefs available to members" },
+    {
+      label: "Quest reviews",
+      value: submittedQuestCount,
+      detail: "Submitted quests waiting on confirmation"
+    },
+    { label: "Admin users", value: adminCount, detail: "Accounts with elevated access" }
+  ]);
 }
 
 function wireAdminForms() {
@@ -4976,9 +5012,7 @@ function buildAdminMissionCard(mission) {
         </label>
         <div class="quest-actions">
           <button class="primary-button" type="submit">Save mission</button>
-          <button class="secondary-button" data-action="delete" type="button"${
-            browserAdminMissionMode ? ' disabled title="Delete missions from static hosting is unavailable."' : ""
-          }>Delete mission</button>
+          <button class="secondary-button" data-action="delete" type="button">Delete mission</button>
         </div>
       </form>
       <div class="form-feedback" id="mission-admin-feedback-${mission.id}"></div>
@@ -5396,12 +5430,7 @@ async function initProtectedPage() {
       const list = document.getElementById("admin-user-list");
       const identityList = document.getElementById("admin-identity-list");
       const questList = document.getElementById("admin-quest-list");
-      const summary = document.getElementById("admin-summary");
-      if (summary) {
-        summary.innerHTML =
-          `<article class="stat-card"><p>Admin console</p><strong>Browser mission mode</strong><span>Static hosting can create and edit mission briefs through Supabase.</span></article>
-          <article class="stat-card"><p>Persisted briefs</p><strong>${adminMissionRecords.length}</strong><span>Mission records available to authenticated users.</span></article>`;
-      }
+      renderAdminSummary();
       if (list) {
         list.innerHTML =
           '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Static hosting limitation</strong><span>GitHub Pages can sign users in, but bulk admin management still runs through the server APIs.</span></div></div></article>';
@@ -5420,11 +5449,7 @@ async function initProtectedPage() {
           ? payload.missions.map((mission) => normalizeMissionRecord(mission)).filter(Boolean)
           : [];
         missionCatalog = adminMissionRecords.slice();
-        if (summary) {
-          summary.innerHTML =
-            `<article class="stat-card"><p>Admin console</p><strong>Browser mission mode</strong><span>Static hosting can create and edit mission briefs through Supabase.</span></article>
-            <article class="stat-card"><p>Persisted briefs</p><strong>${adminMissionRecords.length}</strong><span>Mission records available to authenticated users.</span></article>`;
-        }
+        renderAdminSummary();
         renderAdminMissionList();
       } catch (error) {
         const missionCreate = document.getElementById("admin-mission-create");

@@ -93,49 +93,36 @@ const supabaseAuth = hasSupabaseConfig
     })
   : null;
 
-const publicRoutes = new Set(["/index.html", "/reset-password.html"]);
-const protectedRoutes = new Set([
-  "/dashboard.html",
-  "/onboarding.html",
-  "/missions.html",
-  "/map.html",
-  "/training.html",
-  "/reporting.html",
-  "/leaderboard.html",
-  "/roadmap.html",
-  "/account.html",
-  "/admin.html"
-]);
-const adminRoutes = new Set(["/admin.html"]);
-const canonicalRouteMap = new Map([
-  ["/index.html", "/"],
-  ["/reset-password.html", "/reset-password"],
-  ["/dashboard.html", "/dashboard"],
-  ["/onboarding.html", "/onboarding"],
-  ["/missions.html", "/missions"],
-  ["/map.html", "/map"],
-  ["/training.html", "/training"],
-  ["/reporting.html", "/reporting"],
-  ["/leaderboard.html", "/leaderboard"],
-  ["/roadmap.html", "/roadmap"],
-  ["/account.html", "/account"],
-  ["/admin.html", "/admin"]
-]);
-
-const aliasMap = new Map([
-  ["/", "/index.html"],
-  ["/reset-password", "/reset-password.html"],
-  ["/dashboard", "/dashboard.html"],
-  ["/onboarding", "/onboarding.html"],
-  ["/missions", "/missions.html"],
-  ["/map", "/map.html"],
-  ["/training", "/training.html"],
-  ["/reporting", "/reporting.html"],
-  ["/leaderboard", "/leaderboard.html"],
-  ["/roadmap", "/roadmap.html"],
-  ["/account", "/account.html"],
-  ["/admin", "/admin.html"]
-]);
+const PAGE_ROUTES = [
+  { htmlPath: "/index.html", routePath: "/", access: "public" },
+  { htmlPath: "/reset-password.html", routePath: "/reset-password", access: "public" },
+  { htmlPath: "/dashboard.html", routePath: "/dashboard", access: "protected" },
+  { htmlPath: "/onboarding.html", routePath: "/onboarding", access: "protected" },
+  { htmlPath: "/missions.html", routePath: "/missions", access: "protected" },
+  { htmlPath: "/map.html", routePath: "/map", access: "protected" },
+  { htmlPath: "/training.html", routePath: "/training", access: "protected" },
+  { htmlPath: "/reporting.html", routePath: "/reporting", access: "protected" },
+  { htmlPath: "/leaderboard.html", routePath: "/leaderboard", access: "protected" },
+  { htmlPath: "/roadmap.html", routePath: "/roadmap", access: "protected" },
+  { htmlPath: "/account.html", routePath: "/account", access: "protected" },
+  { htmlPath: "/admin.html", routePath: "/admin", access: "admin" }
+];
+const publicRoutes = new Set(
+  PAGE_ROUTES.filter((page) => page.access === "public").map((page) => page.htmlPath)
+);
+const protectedRoutes = new Set(
+  PAGE_ROUTES.filter((page) => page.access !== "public").map((page) => page.htmlPath)
+);
+const adminRoutes = new Set(
+  PAGE_ROUTES.filter((page) => page.access === "admin").map((page) => page.htmlPath)
+);
+const canonicalRouteMap = new Map(PAGE_ROUTES.map((page) => [page.htmlPath, page.routePath]));
+const aliasMap = new Map(
+  PAGE_ROUTES.flatMap((page) => [
+    [page.routePath, page.htmlPath],
+    [page.htmlPath, page.htmlPath]
+  ])
+);
 
 const contentTypes = {
   ".css": "text/css; charset=utf-8",
@@ -2644,7 +2631,6 @@ async function handleRequest(request, response) {
   setSecurityHeaders(response);
 
   try {
-    console.log("[request]", request.method, request.url);
     const url = new URL(request.url, `http://${request.headers.host || `${HOST}:${PORT}`}`);
     const pathname = url.pathname;
 
