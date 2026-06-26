@@ -69,6 +69,8 @@ const missions = [
     type: "online",
     risk: "Moderate oversight",
     title: "Patrol the Shadows",
+    questGiver: "Dispatcher Nyra",
+    questConfirmer: "Moderator Sable",
     description:
       "Monitor flagged Discord communities, document suspicious grooming patterns, and prepare moderator-ready notes.",
     location: "Remote / Pacific time",
@@ -79,6 +81,7 @@ const missions = [
     minReadiness: 30,
     xpReward: 120,
     readinessReward: 4,
+    rewardLabel: "Intel packet + patrol credit",
     steps: [
       "Review the flagged channel list and confirm observation coverage.",
       "Capture timestamps, usernames, and grooming indicators in the evidence template.",
@@ -90,6 +93,8 @@ const missions = [
     type: "hybrid",
     risk: "Supervisor approval",
     title: "Chapter: The Hidden Meet",
+    questGiver: "Supervisor Vale",
+    questConfirmer: "Commander Imani",
     description:
       "Coordinate remote observers, decoy support, and a law-enforcement liaison around a time-boxed meetup window.",
     location: "San Jose, CA",
@@ -100,6 +105,7 @@ const missions = [
     minReadiness: 55,
     xpReward: 220,
     readinessReward: 8,
+    rewardLabel: "Meetup ops clearance + response credit",
     steps: [
       "Complete the supervisor briefing and confirm assigned support roles.",
       "Run the live safety check-in cadence during the meetup window.",
@@ -111,6 +117,8 @@ const missions = [
     type: "realworld",
     risk: "High restriction",
     title: "Meetup Vigil",
+    questGiver: "Captain Roan",
+    questConfirmer: "Field Marshal Eden",
     description:
       "A tightly controlled support operation with role-gated access, location sharing, and post-event debrief requirements.",
     location: "Oakland, CA",
@@ -121,6 +129,7 @@ const missions = [
     minReadiness: 80,
     xpReward: 320,
     readinessReward: 10,
+    rewardLabel: "Field command commendation",
     steps: [
       "Verify all participants, equipment, and consent-based location sharing before deployment.",
       "Maintain field safety oversight and document every checkpoint during the support window.",
@@ -132,6 +141,8 @@ const missions = [
     type: "online",
     risk: "Open to trained users",
     title: "Signal Lantern",
+    questGiver: "Archivist Lux",
+    questConfirmer: "Verifier Quinn",
     description:
       "Review tip submissions for completeness, normalize timestamps, and route validated reports to moderators.",
     location: "Remote / Nationwide",
@@ -142,6 +153,7 @@ const missions = [
     minReadiness: 20,
     xpReward: 90,
     readinessReward: 3,
+    rewardLabel: "Validated tip routing credit",
     steps: [
       "Open the intake queue and identify submissions missing key evidence fields.",
       "Normalize timestamps, platform handles, and supporting attachments.",
@@ -349,64 +361,298 @@ const roadmap = [
   {
     week: "Week 1-2",
     title: "Auth, profiles, and onboarding",
-    detail: "Identity flow, verification checkpoints, and training shell with progress state."
+    detail: "Identity flow, verification checkpoints, and training shell with progress state.",
+    status: "complete",
+    progressLabel: "3 of 3 delivered"
   },
   {
     week: "Week 3-4",
     title: "Missions, reports, and gamification",
-    detail: "CRUD for missions, XP ledger, leaderboard filters, and structured reporting drafts."
+    detail: "CRUD for missions, XP ledger, leaderboard filters, and structured reporting drafts.",
+    status: "complete",
+    progressLabel: "4 of 4 delivered"
   },
   {
     week: "Week 5-6",
     title: "Platform and safety tooling",
-    detail: "Consent-based linking, evidence vault structure, map placeholders, and panic escalation UX."
+    detail: "Consent-based linking, evidence vault structure, map placeholders, and panic escalation UX.",
+    status: "active",
+    progressLabel: "2 of 5 in progress"
   },
   {
     week: "Week 7-8",
     title: "Moderation, QA, and launch prep",
-    detail: "Security hardening, moderator dashboards, accessibility checks, and beta deployment."
+    detail: "Security hardening, moderator dashboards, accessibility checks, and beta deployment.",
+    status: "planned",
+    progressLabel: "2 of 6 started"
+  }
+];
+
+const roadmapPhases = [
+  {
+    week: "Weeks 1-2",
+    title: "Identity and onboarding spine",
+    status: "complete",
+    summary: "The account system, verification flow, and training/onboarding surfaces are in place and connected to shared seeded state.",
+    outcome: "This gives the MVP a real login boundary plus role-aware profile scaffolding instead of a pure prototype shell.",
+    deliverables: [
+      { label: "Protected auth flow with registration, sign-in, and session handling", status: "complete", href: "/" },
+      { label: "Account page for profile updates, password changes, and legal notices", status: "complete", href: "/account" },
+      { label: "Onboarding flow with identity review states and officer path fields", status: "complete", href: "/onboarding" },
+      { label: "Training page with progress cards and safety controls", status: "complete", href: "/training" }
+    ]
+  },
+  {
+    week: "Weeks 3-4",
+    title: "Mission loop and reporting",
+    status: "complete",
+    summary: "Core quest browsing, reporting, and leaderboard surfaces are already built across dedicated pages.",
+    outcome: "Users can understand the game loop end to end: discover work, submit structured notes, and see progress reflected in points and rank.",
+    deliverables: [
+      { label: "Mission board with filters, summaries, and personal quest assignments", status: "complete", href: "/missions" },
+      { label: "Reporting workflow with structured evidence draft fields", status: "complete", href: "/reporting" },
+      { label: "Leaderboard and scoring model views", status: "complete", href: "/leaderboard" },
+      { label: "Dashboard entry points tying readiness, missions, and reporting together", status: "complete", href: "/dashboard" }
+    ]
+  },
+  {
+    week: "Weeks 5-6",
+    title: "Safety tooling and operational map",
+    status: "active",
+    summary: "The operational map and location preferences exist, but the higher-risk mission safety tooling is only partially represented.",
+    outcome: "This phase should convert the current placeholders into constrained, audit-friendly tools for active mission support.",
+    deliverables: [
+      { label: "Interactive operations map with regions, hotspot details, and quest overlays", status: "complete", href: "/map" },
+      { label: "Consent-based account linking for external platforms", status: "planned" },
+      { label: "Evidence vault model for media, notes, and chain-of-custody events", status: "active" },
+      { label: "Live check-ins, panic escalation, and backup coordination flows", status: "planned" },
+      { label: "Real-time location sharing with expiration and safety prompts", status: "planned" }
+    ]
+  },
+  {
+    week: "Weeks 7-8",
+    title: "Moderation, QA, and launch hardening",
+    status: "planned",
+    summary: "Admin tooling and Supabase support have started this phase, but launch-readiness work still needs to be formalized.",
+    outcome: "Finishing this phase should leave the project with a safer release path, clearer moderation controls, and fewer deployment surprises.",
+    deliverables: [
+      { label: "Admin review console for member roles, points, and verification state", status: "complete", href: "/admin" },
+      { label: "Supabase-backed auth/profile storage with schema and env setup", status: "complete" },
+      { label: "Integration test pass across auth, missions, reporting, and admin routes", status: "planned" },
+      { label: "Accessibility pass for keyboard flow, contrast, and mobile layout", status: "planned" },
+      { label: "Security hardening checklist for session, policy, and protected routes", status: "active" },
+      { label: "Beta deployment and operator documentation", status: "planned" }
+    ]
+  }
+];
+
+const roadmapFocus = [
+  {
+    status: "next",
+    title: "Ship the evidence vault backbone",
+    detail: "Model reports, uploads, and review events as durable records so the reporting page can evolve beyond seeded drafts."
+  },
+  {
+    status: "next",
+    title: "Design the safety escalation path before building it",
+    detail: "Panic alerts, live check-ins, and location sharing need strong guardrails and explicit expiry behavior before UI polish."
+  },
+  {
+    status: "watch",
+    title: "Close launch-readiness gaps",
+    detail: "The app now has multiple protected surfaces, so QA, accessibility review, and a security pass should happen before any broader beta."
   }
 ];
 
 const pageLinks = [
   {
     title: "Dashboard",
-    href: "./dashboard.html",
+    href: "/dashboard",
     description: "Overview metrics, readiness, and entry points to focused workflows."
   },
   {
     title: "Onboarding",
-    href: "./onboarding.html",
+    href: "/onboarding",
     description: "Verification checkpoints, role progression, and current guardian profile."
   },
   {
     title: "Missions",
-    href: "./missions.html",
+    href: "/missions",
     description: "Browse mission briefs by type, required roles, and oversight level."
   },
   {
     title: "Map",
-    href: "./map.html",
+    href: "/map",
     description: "Explore regions, guardians, and quests through an interactive operations map."
   },
   {
     title: "Training",
-    href: "./training.html",
+    href: "/training",
     description: "Track certification progress across legal, safety, and evidence modules."
   },
   {
     title: "Reporting",
-    href: "./reporting.html",
+    href: "/reporting",
     description: "Create structured evidence drafts for moderator review and handoff."
   },
   {
     title: "Leaderboard",
-    href: "./leaderboard.html",
+    href: "/leaderboard",
     description: "Recognize protocol adherence and constructive contribution."
   },
   {
     title: "Roadmap",
-    href: "./roadmap.html",
+    href: "/roadmap",
     description: "Review the eight-week MVP release track from setup through beta."
+  }
+];
+
+const dashboardHotspots = [
+  {
+    id: "bay-relay",
+    label: "Bay Relay",
+    state: "California",
+    tone: "high",
+    pings: 12,
+    window: "18 min",
+    coverage: "Hybrid support",
+    summary: "Observer coverage is steady, but the meetup support chain needs one more confirmed handoff.",
+    response: "Confirm support role coverage and lock the debrief owner before the window opens.",
+    missionId: "quest-hidden-meet"
+  },
+  {
+    id: "triage-lantern",
+    label: "Triage Lantern",
+    state: "Texas",
+    tone: "medium",
+    pings: 8,
+    window: "Rolling",
+    coverage: "Tip validation",
+    summary: "The queue is healthy, though timestamp cleanup is lagging on mobile screenshots from late-night intake.",
+    response: "Route one verifier to cleanup and package the next batch for the reporting queue.",
+    missionId: "quest-lantern"
+  },
+  {
+    id: "northeast-watch",
+    label: "Northeast Watch",
+    state: "New York",
+    tone: "high",
+    pings: 15,
+    window: "Tonight",
+    coverage: "Discord sweep",
+    summary: "Multiple grooming-pattern alerts landed within the same moderation window and need evidence normalization.",
+    response: "Prioritize moderator-ready notes and keep one escalation slot open for fast review.",
+    missionId: "quest-shadow"
+  },
+  {
+    id: "coastal-vigil",
+    label: "Coastal Vigil",
+    state: "Florida",
+    tone: "low",
+    pings: 4,
+    window: "Sat 2:00 PM",
+    coverage: "Field readiness",
+    summary: "High-trust mission access remains restricted, but checklist completion is trending in the right direction.",
+    response: "Use the lull to verify equipment, consent settings, and final safety acknowledgments.",
+    missionId: "quest-vigil"
+  }
+];
+
+const dashboardActivity = [
+  {
+    id: "activity-1",
+    category: "missions",
+    tone: "high",
+    actor: "Jordan",
+    title: "Moderator review accelerated for Northeast Watch",
+    detail: "Two evidence bundles were normalized and moved to the handoff queue after duplicate handles were merged.",
+    time: "2 min ago"
+  },
+  {
+    id: "activity-2",
+    category: "reports",
+    tone: "medium",
+    actor: "Maya",
+    title: "Signal Lantern tip packet submitted",
+    detail: "Four tips were grouped into one cleaner narrative with normalized timestamps and attachment notes.",
+    time: "11 min ago"
+  },
+  {
+    id: "activity-3",
+    category: "safety",
+    tone: "low",
+    actor: "Alex",
+    title: "Live safety check cadence confirmed",
+    detail: "The next hybrid support window has check-ins assigned, backup contact listed, and incident route tested.",
+    time: "22 min ago"
+  },
+  {
+    id: "activity-4",
+    category: "training",
+    tone: "medium",
+    actor: "Noor",
+    title: "Real-world safety module moved past 80%",
+    detail: "One final simulation remains before support-mission eligibility can be reviewed for the next tier.",
+    time: "45 min ago"
+  },
+  {
+    id: "activity-5",
+    category: "missions",
+    tone: "medium",
+    actor: "Rin",
+    title: "Bay Relay support role reopened",
+    detail: "A backup observer dropped, so dispatch reopened one slot and moved the mission to active staffing watch.",
+    time: "1 hr ago"
+  }
+];
+
+const dashboardReports = [
+  {
+    id: "report-1",
+    title: "Moderator-ready package",
+    state: "New York",
+    status: "Ready to hand off",
+    confidence: "94%",
+    channel: "Discord sweep"
+  },
+  {
+    id: "report-2",
+    title: "Cross-platform tip cluster",
+    state: "Texas",
+    status: "Needs one timestamp pass",
+    confidence: "81%",
+    channel: "Signal Lantern queue"
+  },
+  {
+    id: "report-3",
+    title: "Safety brief recap",
+    state: "California",
+    status: "Locked for dispatch",
+    confidence: "98%",
+    channel: "Bay Relay"
+  }
+];
+
+const dashboardQuickActions = [
+  {
+    id: "action-1",
+    title: "Open mission board",
+    detail: "Review claims, unlocks, and current staffing gaps.",
+    href: "/missions",
+    cta: "Review quests"
+  },
+  {
+    id: "action-2",
+    title: "Prepare report handoff",
+    detail: "Package the next evidence bundle with moderator-ready notes.",
+    href: "/reporting",
+    cta: "Draft report"
+  },
+  {
+    id: "action-3",
+    title: "Check training progress",
+    detail: "Push readiness toward the next trust tier.",
+    href: "/training",
+    cta: "Open training"
   }
 ];

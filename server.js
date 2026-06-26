@@ -48,6 +48,7 @@ const SESSION_COOKIE = "pg_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
 const LEGAL_VERSION = "2026-06-22";
 const LOCATION_PREFERENCES = new Set(["unset", "device", "manual", "declined"]);
+const MISSION_TYPES = new Set(["online", "hybrid", "realworld"]);
 const IDENTITY_STATUSES = new Set([
   "draft",
   "submitted",
@@ -56,6 +57,8 @@ const IDENTITY_STATUSES = new Set([
   "approved",
   "rejected"
 ]);
+const QUEST_USER_STATUSES = new Set(["accepted", "submitted"]);
+const QUEST_ADMIN_STATUSES = new Set(["submitted", "needs_revision", "confirmed"]);
 const ID_DOCUMENT_TYPES = new Set(["unset", "drivers_license", "state_id", "passport", "other"]);
 const SUPABASE_URL = process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "";
 const SUPABASE_ANON_KEY =
@@ -95,6 +98,20 @@ const protectedRoutes = new Set([
   "/admin.html"
 ]);
 const adminRoutes = new Set(["/admin.html"]);
+const canonicalRouteMap = new Map([
+  ["/index.html", "/"],
+  ["/reset-password.html", "/reset-password"],
+  ["/dashboard.html", "/dashboard"],
+  ["/onboarding.html", "/onboarding"],
+  ["/missions.html", "/missions"],
+  ["/map.html", "/map"],
+  ["/training.html", "/training"],
+  ["/reporting.html", "/reporting"],
+  ["/leaderboard.html", "/leaderboard"],
+  ["/roadmap.html", "/roadmap"],
+  ["/account.html", "/account"],
+  ["/admin.html", "/admin"]
+]);
 
 const aliasMap = new Map([
   ["/", "/index.html"],
@@ -129,12 +146,14 @@ const ROLE_OPTIONS = [
   "Officer / LE Partner"
 ];
 
-const MISSION_CATALOG = [
+const SEEDED_MISSION_CATALOG = [
   {
     id: "quest-shadow",
     type: "online",
     risk: "Moderate oversight",
     title: "Patrol the Shadows",
+    questGiver: "Dispatcher Nyra",
+    questConfirmer: "Moderator Sable",
     description:
       "Monitor flagged Discord communities, document suspicious grooming patterns, and prepare moderator-ready notes.",
     location: "Remote / Pacific time",
@@ -145,6 +164,7 @@ const MISSION_CATALOG = [
     minReadiness: 30,
     xpReward: 120,
     readinessReward: 4,
+    rewardLabel: "Intel packet + patrol credit",
     steps: [
       "Review the flagged channel list and confirm observation coverage.",
       "Capture timestamps, usernames, and grooming indicators in the evidence template.",
@@ -156,6 +176,8 @@ const MISSION_CATALOG = [
     type: "hybrid",
     risk: "Supervisor approval",
     title: "Chapter: The Hidden Meet",
+    questGiver: "Supervisor Vale",
+    questConfirmer: "Commander Imani",
     description:
       "Coordinate remote observers, decoy support, and a law-enforcement liaison around a time-boxed meetup window.",
     location: "San Jose, CA",
@@ -166,6 +188,7 @@ const MISSION_CATALOG = [
     minReadiness: 55,
     xpReward: 220,
     readinessReward: 8,
+    rewardLabel: "Meetup ops clearance + response credit",
     steps: [
       "Complete the supervisor briefing and confirm assigned support roles.",
       "Run the live safety check-in cadence during the meetup window.",
@@ -177,6 +200,8 @@ const MISSION_CATALOG = [
     type: "realworld",
     risk: "High restriction",
     title: "Meetup Vigil",
+    questGiver: "Captain Roan",
+    questConfirmer: "Field Marshal Eden",
     description:
       "A tightly controlled support operation with role-gated access, location sharing, and post-event debrief requirements.",
     location: "Oakland, CA",
@@ -187,6 +212,7 @@ const MISSION_CATALOG = [
     minReadiness: 80,
     xpReward: 320,
     readinessReward: 10,
+    rewardLabel: "Field command commendation",
     steps: [
       "Verify all participants, equipment, and consent-based location sharing before deployment.",
       "Maintain field safety oversight and document every checkpoint during the support window.",
@@ -198,6 +224,8 @@ const MISSION_CATALOG = [
     type: "online",
     risk: "Open to trained users",
     title: "Signal Lantern",
+    questGiver: "Archivist Lux",
+    questConfirmer: "Verifier Quinn",
     description:
       "Review tip submissions for completeness, normalize timestamps, and route validated reports to moderators.",
     location: "Remote / Nationwide",
@@ -208,6 +236,7 @@ const MISSION_CATALOG = [
     minReadiness: 20,
     xpReward: 90,
     readinessReward: 3,
+    rewardLabel: "Validated tip routing credit",
     steps: [
       "Open the intake queue and identify submissions missing key evidence fields.",
       "Normalize timestamps, platform handles, and supporting attachments.",
@@ -237,7 +266,67 @@ function getRoleRank(role) {
 }
 
 function findMissionById(missionId) {
-  return MISSION_CATALOG.find((mission) => mission.id === missionId) || null;
+  return SEEDED_MISSION_CATALOG.find((mission) => mission.id === missionId) || null;
+}
+
+function sanitizeMissionText(value, maxLength = 200, fallback = "") {
+  return String(value ?? fallback)
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeMissionList(value, maxItems = 12, itemMaxLength = 120) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/\r?\n|,/u)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+  return rawItems
+    .map((item) => sanitizeMissionText(item, itemMaxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function slugifyMissionId(value) {
+  const base = sanitizeMissionText(value, 80)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+
+  return base || `mission-${Date.now().toString(36)}`;
+}
+
+function mapMissionRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    type: record.type,
+    risk: record.risk || "",
+    title: record.title,
+    questGiver: record.quest_giver || "",
+    questConfirmer: record.quest_confirmer || "",
+    description: record.description || "",
+    location: record.location || "",
+    schedule: record.schedule || "",
+    roles: Array.isArray(record.roles) ? record.roles : [],
+    protocol: record.protocol || "",
+    minimumRole: record.minimum_role,
+    minReadiness: record.min_readiness,
+    xpReward: record.xp_reward,
+    readinessReward: record.readiness_reward,
+    rewardLabel: record.reward_label || "",
+    steps: Array.isArray(record.steps) ? record.steps : [],
+    isActive: record.is_active !== false,
+    createdBy: record.created_by || null,
+    updatedBy: record.updated_by || null,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
 }
 
 function mapUserQuest(record) {
@@ -255,21 +344,100 @@ function mapUserQuest(record) {
     xpReward: record.xp_reward,
     readinessReward: record.readiness_reward,
     startedAt: record.started_at,
+    submittedAt: record.submitted_at,
+    rewardGrantedAt: record.reward_granted_at,
+    confirmedAt: record.confirmed_at,
+    confirmedBy: record.confirmed_by,
+    confirmationNotes: record.confirmation_notes || "",
     completedAt: record.completed_at,
     createdAt: record.created_at,
     updatedAt: record.updated_at
   };
 }
 
+function getQuestStatusMeta(status) {
+  switch (status) {
+    case "accepted":
+      return {
+        label: "Accepted",
+        adminReviewable: false,
+        rewardState: "pending",
+        userLocked: false
+      };
+    case "submitted":
+      return {
+        label: "Submitted for confirmation",
+        adminReviewable: true,
+        rewardState: "pending",
+        userLocked: true
+      };
+    case "needs_revision":
+      return {
+        label: "Needs revision",
+        adminReviewable: true,
+        rewardState: "pending",
+        userLocked: false
+      };
+    case "confirmed":
+      return {
+        label: "Confirmed",
+        adminReviewable: true,
+        rewardState: "granted",
+        userLocked: true
+      };
+    default:
+      return {
+        label: status,
+        adminReviewable: false,
+        rewardState: "pending",
+        userLocked: false
+      };
+  }
+}
+
+async function listMissionCatalog({ includeInactive = true } = {}) {
+  if (hasSupabaseConfig) {
+    return supabaseListMissions(includeInactive);
+  }
+
+  return SEEDED_MISSION_CATALOG.filter((mission) => includeInactive || mission.isActive !== false).map(
+    (mission) => ({
+      ...mission,
+      isActive: mission.isActive !== false
+    })
+  );
+}
+
+async function getMissionCatalogEntryById(missionId) {
+  if (hasSupabaseConfig) {
+    return supabaseGetMissionById(missionId);
+  }
+
+  const mission = findMissionById(missionId);
+  return mission ? { ...mission, isActive: mission.isActive !== false } : null;
+}
+
 function describeMissionAccess(user, mission, assignments) {
   const assignment = assignments.find((entry) => entry.missionId === mission.id) || null;
   if (assignment) {
+    const statusMeta = getQuestStatusMeta(assignment.status);
     return {
       claimable: false,
       state: assignment.status,
       reason:
-        assignment.status === "completed" ? "Completed and rewards already granted." : "Already claimed.",
+        assignment.status === "confirmed"
+          ? "Confirmed and rewards granted."
+          : `${statusMeta.label}.`,
       assignmentId: assignment.id
+    };
+  }
+
+  if (mission.isActive === false) {
+    return {
+      claimable: false,
+      state: "inactive",
+      reason: "Mission is inactive and not accepting new assignments.",
+      assignmentId: null
     };
   }
 
@@ -299,42 +467,52 @@ function describeMissionAccess(user, mission, assignments) {
   };
 }
 
-function buildQuestBoardPayload(user, assignments) {
+function buildQuestBoardPayload(user, assignments, missionCatalog) {
   const detailedAssignments = assignments
     .map((assignment) => {
-      const mission = findMissionById(assignment.missionId);
+      const mission = missionCatalog.find((entry) => entry.id === assignment.missionId) || null;
       if (!mission) {
         return null;
       }
 
       return {
         ...assignment,
+        statusMeta: getQuestStatusMeta(assignment.status),
         mission
       };
     })
     .filter(Boolean)
     .sort((left, right) => {
-      if (left.status !== right.status) {
-        return left.status === "active" ? -1 : 1;
+      const leftPriority = left.status === "submitted" ? 0 : left.status === "needs_revision" ? 1 : left.status === "accepted" ? 2 : 3;
+      const rightPriority =
+        right.status === "submitted" ? 0 : right.status === "needs_revision" ? 1 : right.status === "accepted" ? 2 : 3;
+
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
       }
 
       return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
     });
 
-  const availableQuests = MISSION_CATALOG.map((mission) => ({
-    ...mission,
-    access: describeMissionAccess(user, mission, assignments)
-  }));
+  const availableQuests = missionCatalog
+    .filter((mission) => mission.isActive !== false)
+    .map((mission) => ({
+      ...mission,
+      access: describeMissionAccess(user, mission, assignments)
+    }));
 
   return {
     availableQuests,
     assignments: detailedAssignments,
     summary: {
-      activeCount: detailedAssignments.filter((assignment) => assignment.status === "active").length,
-      completedCount: detailedAssignments.filter((assignment) => assignment.status === "completed")
+      activeCount: detailedAssignments.filter((assignment) =>
+        ["accepted", "needs_revision"].includes(assignment.status)
+      ).length,
+      submittedCount: detailedAssignments.filter((assignment) => assignment.status === "submitted").length,
+      completedCount: detailedAssignments.filter((assignment) => assignment.status === "confirmed")
         .length,
       totalXpEarned: detailedAssignments
-        .filter((assignment) => assignment.status === "completed")
+        .filter((assignment) => assignment.status === "confirmed")
         .reduce((sum, assignment) => sum + (assignment.xpReward || 0), 0),
       claimableCount: availableQuests.filter((mission) => mission.access.claimable).length
     }
@@ -827,6 +1005,84 @@ async function supabaseListUserQuests(userId) {
   return data.map(mapUserQuest);
 }
 
+async function supabaseListMissions(includeInactive = true) {
+  let query = supabaseAdmin.from("missions").select("*").order("title", { ascending: true });
+  if (!includeInactive) {
+    query = query.eq("is_active", true);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    if (error.code === "42P01") {
+      return SEEDED_MISSION_CATALOG.map((mission) => ({ ...mission, isActive: true }));
+    }
+
+    throwIfSupabaseError(error, "Unable to load missions.");
+  }
+
+  return data.map(mapMissionRecord);
+}
+
+async function supabaseGetMissionById(missionId) {
+  const { data, error } = await supabaseAdmin
+    .from("missions")
+    .select("*")
+    .eq("id", missionId)
+    .maybeSingle();
+
+  if (error) {
+    if (error.code === "42P01") {
+      return findMissionById(missionId);
+    }
+
+    throwIfSupabaseError(error, "Unable to load the mission.");
+  }
+
+  return mapMissionRecord(data);
+}
+
+async function supabaseCreateMission(mission) {
+  const { data, error } = await supabaseAdmin.from("missions").insert(mission).select("*").single();
+  throwIfSupabaseError(error, "Unable to create the mission.");
+  return mapMissionRecord(data);
+}
+
+async function supabasePatchMission(missionId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from("missions")
+    .update(updates)
+    .eq("id", missionId)
+    .select("*")
+    .single();
+
+  throwIfSupabaseError(error, "Unable to update the mission.");
+  return mapMissionRecord(data);
+}
+
+async function supabaseDeleteMission(missionId) {
+  const { error } = await supabaseAdmin.from("missions").delete().eq("id", missionId);
+  throwIfSupabaseError(error, "Unable to delete the mission.");
+}
+
+async function supabaseCountMissionAssignments(missionId) {
+  const { count, error } = await supabaseAdmin
+    .from("user_quests")
+    .select("*", { count: "exact", head: true })
+    .eq("mission_id", missionId);
+
+  throwIfSupabaseError(error, "Unable to inspect mission assignments.");
+  return count || 0;
+}
+
+async function supabaseListAllUserQuests() {
+  const { data, error } = await supabaseAdmin.from("user_quests").select("*").order("updated_at", {
+    ascending: false
+  });
+
+  throwIfSupabaseError(error, "Unable to load the quest queue.");
+  return data.map(mapUserQuest);
+}
+
 async function supabaseGetUserQuestById(questId) {
   const { data, error } = await supabaseAdmin
     .from("user_quests")
@@ -844,11 +1100,12 @@ async function supabaseCreateUserQuest(userId, mission) {
     .insert({
       user_id: userId,
       mission_id: mission.id,
-      status: "active",
+      status: "accepted",
       progress_percent: 0,
       notes: "",
       xp_reward: mission.xpReward,
-      readiness_reward: mission.readinessReward
+      readiness_reward: mission.readinessReward,
+      confirmation_notes: ""
     })
     .select()
     .single();
@@ -1017,6 +1274,102 @@ async function updateSupabaseAdminUser(userId, updates) {
   });
 }
 
+function buildMissionMutation(body, { partial = false, existingMission = null } = {}) {
+  const patch = {};
+
+  if (!partial || body.id !== undefined) {
+    const nextId = slugifyMissionId(body.id || body.title || existingMission?.id);
+    if (!nextId) {
+      throw new Error("Mission id is required.");
+    }
+    patch.id = nextId;
+  }
+
+  if (!partial || body.type !== undefined) {
+    const nextType = sanitizeMissionText(body.type, 40);
+    if (!MISSION_TYPES.has(nextType)) {
+      throw new Error("Mission type must be online, hybrid, or realworld.");
+    }
+    patch.type = nextType;
+  }
+
+  if (!partial || body.title !== undefined) {
+    const title = sanitizeMissionText(body.title, 120);
+    if (!title) {
+      throw new Error("Mission title is required.");
+    }
+    patch.title = title;
+  }
+
+  if (!partial || body.minimumRole !== undefined) {
+    const minimumRole = sanitizeMissionText(body.minimumRole, 80);
+    if (!ROLE_OPTIONS.includes(minimumRole)) {
+      throw new Error("Mission minimum role is invalid.");
+    }
+    patch.minimum_role = minimumRole;
+  }
+
+  if (!partial || body.description !== undefined) {
+    patch.description = sanitizeMissionText(body.description, 1200);
+  }
+  if (!partial || body.risk !== undefined) {
+    patch.risk = sanitizeMissionText(body.risk, 120);
+  }
+  if (!partial || body.questGiver !== undefined) {
+    patch.quest_giver = sanitizeMissionText(body.questGiver, 120);
+  }
+  if (!partial || body.questConfirmer !== undefined) {
+    patch.quest_confirmer = sanitizeMissionText(body.questConfirmer, 120);
+  }
+  if (!partial || body.location !== undefined) {
+    patch.location = sanitizeMissionText(body.location, 160);
+  }
+  if (!partial || body.schedule !== undefined) {
+    patch.schedule = sanitizeMissionText(body.schedule, 160);
+  }
+  if (!partial || body.protocol !== undefined) {
+    patch.protocol = sanitizeMissionText(body.protocol, 240);
+  }
+  if (!partial || body.rewardLabel !== undefined) {
+    patch.reward_label = sanitizeMissionText(body.rewardLabel, 160);
+  }
+  if (!partial || body.roles !== undefined) {
+    patch.roles = sanitizeMissionList(body.roles, 12, 80);
+  }
+  if (!partial || body.steps !== undefined) {
+    patch.steps = sanitizeMissionList(body.steps, 12, 200);
+  }
+  if (!partial || body.isActive !== undefined) {
+    patch.is_active = Boolean(body.isActive);
+  }
+
+  if (!partial || body.minReadiness !== undefined) {
+    const minReadiness = Number(body.minReadiness);
+    if (!Number.isFinite(minReadiness) || minReadiness < 0 || minReadiness > 100) {
+      throw new Error("Mission readiness must be between 0 and 100.");
+    }
+    patch.min_readiness = Math.round(minReadiness);
+  }
+
+  if (!partial || body.xpReward !== undefined) {
+    const xpReward = Number(body.xpReward);
+    if (!Number.isFinite(xpReward) || xpReward < 0) {
+      throw new Error("Mission XP reward must be a non-negative number.");
+    }
+    patch.xp_reward = Math.round(xpReward);
+  }
+
+  if (!partial || body.readinessReward !== undefined) {
+    const readinessReward = Number(body.readinessReward);
+    if (!Number.isFinite(readinessReward) || readinessReward < 0 || readinessReward > 100) {
+      throw new Error("Mission readiness reward must be between 0 and 100.");
+    }
+    patch.readiness_reward = Math.round(readinessReward);
+  }
+
+  return patch;
+}
+
 async function ensureDataProvider() {
   if (hasSupabaseConfig) {
     return;
@@ -1164,12 +1517,105 @@ async function reviewIdentityVerification(userId, updates) {
 }
 
 async function getQuestBoard(user) {
-  const assignments = await supabaseListUserQuests(user.id);
-  return buildQuestBoardPayload(user, assignments);
+  const [assignments, missionCatalog] = await Promise.all([
+    supabaseListUserQuests(user.id),
+    listMissionCatalog({ includeInactive: true })
+  ]);
+  return buildQuestBoardPayload(user, assignments, missionCatalog);
+}
+
+async function listQuestQueue() {
+  const [quests, users, missionCatalog] = await Promise.all([
+    supabaseListAllUserQuests(),
+    listUsers(),
+    listMissionCatalog({ includeInactive: true })
+  ]);
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  const missionsById = new Map(missionCatalog.map((mission) => [mission.id, mission]));
+
+  return quests
+    .map((quest) => {
+      const mission = missionsById.get(quest.missionId) || null;
+      if (!mission) {
+        return null;
+      }
+
+      return {
+        ...quest,
+        mission,
+        user: usersById.get(quest.userId) || null,
+        statusMeta: getQuestStatusMeta(quest.status)
+      };
+    })
+    .filter((quest) => quest && quest.status !== "accepted");
+}
+
+async function listAdminMissions() {
+  return listMissionCatalog({ includeInactive: true });
+}
+
+async function createMission(adminUser, body) {
+  if (!hasSupabaseConfig) {
+    throw new Error("Mission management requires the Node/Supabase deployment.");
+  }
+
+  const patch = buildMissionMutation(body, { partial: false });
+  const existing = await getMissionCatalogEntryById(patch.id);
+  if (existing) {
+    throw new Error("A mission with that id already exists.");
+  }
+
+  return supabaseCreateMission({
+    ...patch,
+    created_by: adminUser.id,
+    updated_by: adminUser.id
+  });
+}
+
+async function updateMission(adminUser, missionId, body) {
+  if (!hasSupabaseConfig) {
+    throw new Error("Mission management requires the Node/Supabase deployment.");
+  }
+
+  const existingMission = await getMissionCatalogEntryById(missionId);
+  if (!existingMission) {
+    throw new Error("Mission not found.");
+  }
+
+  if (body.id !== undefined && slugifyMissionId(body.id) !== missionId) {
+    throw new Error("Mission ids cannot be changed after creation.");
+  }
+
+  const patch = buildMissionMutation(body, { partial: true, existingMission });
+  if (!Object.keys(patch).length) {
+    throw new Error("No valid mission updates were provided.");
+  }
+
+  patch.updated_by = adminUser.id;
+  return supabasePatchMission(missionId, patch);
+}
+
+async function deleteMission(missionId) {
+  if (!hasSupabaseConfig) {
+    throw new Error("Mission management requires the Node/Supabase deployment.");
+  }
+
+  const existingMission = await getMissionCatalogEntryById(missionId);
+  if (!existingMission) {
+    throw new Error("Mission not found.");
+  }
+
+  const assignmentCount = await supabaseCountMissionAssignments(missionId);
+  if (assignmentCount > 0) {
+    throw new Error("This mission already has assignments. Set it inactive instead of deleting it.");
+  }
+
+  await supabaseDeleteMission(missionId);
+  return { ok: true };
 }
 
 async function claimQuest(user, missionId) {
-  const mission = findMissionById(missionId);
+  const mission = await getMissionCatalogEntryById(missionId);
   if (!mission) {
     throw new Error("Quest not found.");
   }
@@ -1190,8 +1636,12 @@ async function updateQuest(user, questId, updates) {
     throw new Error("Quest not found.");
   }
 
-  if (existingQuest.status === "completed") {
-    throw new Error("Completed quests are read-only.");
+  if (existingQuest.status === "confirmed") {
+    throw new Error("Confirmed quests are read-only.");
+  }
+
+  if (existingQuest.status === "submitted") {
+    throw new Error("This quest is waiting for confirmer review.");
   }
 
   const patch = {};
@@ -1209,32 +1659,108 @@ async function updateQuest(user, questId, updates) {
   }
 
   if (updates.status !== undefined) {
-    if (updates.status !== "active" && updates.status !== "completed") {
-      throw new Error("Quest status must be active or completed.");
+    if (!QUEST_USER_STATUSES.has(updates.status)) {
+      throw new Error("Quest status must stay accepted or move to submitted.");
     }
 
     patch.status = updates.status;
   }
 
-  const isCompleting = patch.status === "completed";
-  if (isCompleting) {
-    patch.progress_percent = 100;
-    patch.completed_at = new Date().toISOString();
+  const isSubmitting = patch.status === "submitted";
+  if (isSubmitting) {
+    const progress = patch.progress_percent ?? existingQuest.progressPercent;
+    if (progress < 100) {
+      throw new Error("Quests must reach 100% progress before confirmation can be requested.");
+    }
+
+    patch.submitted_at = new Date().toISOString();
   }
 
   await supabasePatchUserQuest(questId, patch);
 
-  let nextUser = user;
-  if (isCompleting) {
-    nextUser = await supabasePatchProfile(user.id, {
-      points: (user.points || 0) + existingQuest.xpReward,
-      readiness_score: Math.min(100, (user.readinessScore || 0) + existingQuest.readinessReward)
+  return {
+    user,
+    questBoard: await getQuestBoard(user)
+  };
+}
+
+async function reviewQuest(adminUser, questId, updates) {
+  const existingQuest = await supabaseGetUserQuestById(questId);
+  if (!existingQuest) {
+    throw new Error("Quest not found.");
+  }
+
+  if (!QUEST_ADMIN_STATUSES.has(updates.status)) {
+    throw new Error("Quest review status must be submitted, needs_revision, or confirmed.");
+  }
+
+  const patch = {
+    status: updates.status,
+    confirmation_notes: String(updates.confirmationNotes || "").trim().slice(0, 2000)
+  };
+
+  if (existingQuest.status === "confirmed" && updates.status !== "confirmed") {
+    throw new Error("Confirmed quests can no longer be changed.");
+  }
+
+  if (
+    ["submitted", "needs_revision", "confirmed"].includes(updates.status) &&
+    !["submitted", "needs_revision", "confirmed"].includes(existingQuest.status)
+  ) {
+    throw new Error("Only submitted quests can enter the confirmer review flow.");
+  }
+
+  if (updates.status === "confirmed" && existingQuest.status !== "submitted") {
+    throw new Error("Only submitted quests can be confirmed.");
+  }
+
+  if (updates.status === "submitted") {
+    patch.confirmed_at = null;
+    patch.confirmed_by = null;
+    patch.reward_granted_at = null;
+    patch.completed_at = null;
+  }
+
+  if (updates.status === "needs_revision") {
+    patch.confirmed_at = null;
+    patch.confirmed_by = null;
+    patch.reward_granted_at = null;
+    patch.completed_at = null;
+  }
+
+  let reviewedQuest = await supabasePatchUserQuest(questId, patch);
+  let member = await getUserById(existingQuest.userId);
+
+  if (updates.status === "confirmed") {
+    const confirmationTime = new Date().toISOString();
+    reviewedQuest = await supabasePatchUserQuest(questId, {
+      status: "confirmed",
+      confirmed_at: confirmationTime,
+      confirmed_by: adminUser.id,
+      reward_granted_at: existingQuest.rewardGrantedAt || confirmationTime,
+      completed_at: confirmationTime,
+      confirmation_notes: patch.confirmation_notes
     });
+
+    if (!existingQuest.rewardGrantedAt) {
+      member = await supabasePatchProfile(existingQuest.userId, {
+        points: (member.points || 0) + existingQuest.xpReward,
+        readiness_score: Math.min(
+          100,
+          (member.readinessScore || 0) + existingQuest.readinessReward
+        )
+      });
+    }
   }
 
   return {
-    user: nextUser,
-    questBoard: await getQuestBoard(nextUser)
+    user: member,
+    quest: {
+      ...reviewedQuest,
+      mission: await getMissionCatalogEntryById(reviewedQuest.missionId),
+      user: member,
+      statusMeta: getQuestStatusMeta(reviewedQuest.status)
+    }
   };
 }
 
@@ -1346,7 +1872,7 @@ async function handleForgotPassword(request, response) {
   }
 
   const origin = `${request.headers["x-forwarded-proto"] || "http"}://${request.headers.host || `${HOST}:${PORT}`}`;
-  const redirectTo = new URL("/reset-password.html", origin).toString();
+  const redirectTo = new URL("/reset-password", origin).toString();
   await requestPasswordReset(email, redirectTo);
   sendJson(response, 200, {
     ok: true,
@@ -1462,6 +1988,42 @@ async function handleAdminIdentityReview(request, response, userId) {
   const payload = await reviewIdentityVerification(userId, {
     status: body.status,
     reviewNotes: body.reviewNotes
+  });
+  sendJson(response, 200, payload);
+}
+
+async function handleAdminQuestList(response) {
+  const quests = await listQuestQueue();
+  sendJson(response, 200, { quests });
+}
+
+async function handleAdminMissionList(response) {
+  const missions = await listAdminMissions();
+  sendJson(response, 200, { missions });
+}
+
+async function handleAdminMissionCreate(request, response, adminUser) {
+  const body = await parseBody(request);
+  const mission = await createMission(adminUser, body);
+  sendJson(response, 201, { mission });
+}
+
+async function handleAdminMissionUpdate(request, response, adminUser, missionId) {
+  const body = await parseBody(request);
+  const mission = await updateMission(adminUser, missionId, body);
+  sendJson(response, 200, { mission });
+}
+
+async function handleAdminMissionDelete(response, missionId) {
+  const payload = await deleteMission(missionId);
+  sendJson(response, 200, payload);
+}
+
+async function handleAdminQuestReview(request, response, adminUser, questId) {
+  const body = await parseBody(request);
+  const payload = await reviewQuest(adminUser, questId, {
+    status: body.status,
+    confirmationNotes: body.confirmationNotes
   });
   sendJson(response, 200, payload);
 }
@@ -1664,6 +2226,69 @@ async function handleApi(request, response, urlPath) {
     return;
   }
 
+  if (urlPath === "/api/admin/missions" && request.method === "GET") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleAdminMissionList(response);
+    return;
+  }
+
+  if (urlPath === "/api/admin/missions" && request.method === "POST") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleAdminMissionCreate(request, response, user);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/admin/missions/") && request.method === "PATCH") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    const missionId = urlPath.split("/").pop();
+    await handleAdminMissionUpdate(request, response, user, missionId);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/admin/missions/") && request.method === "DELETE") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    const missionId = urlPath.split("/").pop();
+    await handleAdminMissionDelete(response, missionId);
+    return;
+  }
+
+  if (urlPath === "/api/admin/quests" && request.method === "GET") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleAdminQuestList(response);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/admin/quests/") && request.method === "PATCH") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    const questId = urlPath.split("/").pop();
+    await handleAdminQuestReview(request, response, user, questId);
+    return;
+  }
+
   sendJson(response, 404, { error: "Route not found." });
 }
 
@@ -1678,19 +2303,40 @@ async function serveFile(response, filePath) {
 async function handlePage(request, response, urlPath) {
   const routePath = resolvePath(urlPath);
   const user = await getSessionUser(request);
+  const canonicalRoute = canonicalRouteMap.get(routePath);
+
+  if (urlPath.endsWith(".html") && canonicalRoute) {
+    if (routePath === "/index.html" && user) {
+      sendRedirect(response, user.isAdmin ? "/admin" : "/dashboard");
+      return;
+    }
+
+    if (protectedRoutes.has(routePath) && !user) {
+      sendRedirect(response, "/");
+      return;
+    }
+
+    if (adminRoutes.has(routePath) && user && !user.isAdmin) {
+      sendRedirect(response, "/dashboard");
+      return;
+    }
+
+    sendRedirect(response, canonicalRoute);
+    return;
+  }
 
   if (routePath === "/index.html" && user) {
-    sendRedirect(response, user.isAdmin ? "/admin.html" : "/dashboard.html");
+    sendRedirect(response, user.isAdmin ? "/admin" : "/dashboard");
     return;
   }
 
   if (protectedRoutes.has(routePath) && !user) {
-    sendRedirect(response, "/index.html");
+    sendRedirect(response, "/");
     return;
   }
 
   if (adminRoutes.has(routePath) && user && !user.isAdmin) {
-    sendRedirect(response, "/dashboard.html");
+    sendRedirect(response, "/dashboard");
     return;
   }
 

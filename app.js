@@ -1,4 +1,30 @@
 const currentPage = document.body.dataset.page;
+const PAGE_CONFIG = {
+  auth: { routePath: "/", legacyPath: "/index.html" },
+  "reset-password": { routePath: "/reset-password", legacyPath: "/reset-password.html" },
+  dashboard: { routePath: "/dashboard", legacyPath: "/dashboard.html" },
+  onboarding: { routePath: "/onboarding", legacyPath: "/onboarding.html" },
+  missions: { routePath: "/missions", legacyPath: "/missions.html" },
+  map: { routePath: "/map", legacyPath: "/map.html" },
+  training: { routePath: "/training", legacyPath: "/training.html" },
+  reporting: { routePath: "/reporting", legacyPath: "/reporting.html" },
+  leaderboard: { routePath: "/leaderboard", legacyPath: "/leaderboard.html" },
+  roadmap: { routePath: "/roadmap", legacyPath: "/roadmap.html" },
+  account: { routePath: "/account", legacyPath: "/account.html" },
+  admin: { routePath: "/admin", legacyPath: "/admin.html" }
+};
+const PUBLIC_PAGE_KEYS = new Set(["auth", "reset-password"]);
+const ADMIN_ONLY_PAGE_KEYS = new Set(["admin"]);
+const LEGACY_PAGE_LOOKUP = new Map(
+  Object.values(PAGE_CONFIG).map((config) => [config.legacyPath, config.routePath])
+);
+const ROUTE_PAGE_LOOKUP = new Map(
+  Object.entries(PAGE_CONFIG).flatMap(([key, config]) => [
+    [key, config],
+    [config.routePath, config],
+    [config.legacyPath, config]
+  ])
+);
 
 const ROLE_OPTIONS = [
   "Spotter / Tipster",
@@ -64,20 +90,36 @@ const safetyControlsData = typeof safetyControls !== "undefined" ? safetyControl
 const leaderboardData = typeof leaderboard !== "undefined" ? leaderboard : [];
 const scoringModelData = typeof scoringModel !== "undefined" ? scoringModel : [];
 const roadmapData = typeof roadmap !== "undefined" ? roadmap : [];
+const roadmapPhasesData = typeof roadmapPhases !== "undefined" ? roadmapPhases : [];
+const roadmapFocusData = typeof roadmapFocus !== "undefined" ? roadmapFocus : [];
 const pageLinksData = typeof pageLinks !== "undefined" ? pageLinks : [];
 const mapRegionsData = typeof mapRegions !== "undefined" ? mapRegions : [];
 const mapUsersData = typeof mapUsers !== "undefined" ? mapUsers : [];
 const mapQuestsData = typeof mapQuests !== "undefined" ? mapQuests : [];
+const dashboardHotspotsData = typeof dashboardHotspots !== "undefined" ? dashboardHotspots : [];
+const dashboardActivityData = typeof dashboardActivity !== "undefined" ? dashboardActivity : [];
+const dashboardReportsData = typeof dashboardReports !== "undefined" ? dashboardReports : [];
+const dashboardQuickActionsData =
+  typeof dashboardQuickActions !== "undefined" ? dashboardQuickActions : [];
 const LEGAL_VERSION = "2026-06-22";
 const STATIC_SUPABASE_SCRIPT = "https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2";
 
 let sessionUser = null;
 let adminUsers = [];
+let adminQuestRecords = [];
+let adminMissionRecords = [];
+let missionCatalog = Array.isArray(missionsData)
+  ? missionsData.map((mission) => ({
+      ...mission,
+      isActive: mission.isActive !== false
+    }))
+  : [];
 let questBoard = {
   availableQuests: [],
   assignments: [],
   summary: {
     activeCount: 0,
+    submittedCount: 0,
     completedCount: 0,
     totalXpEarned: 0,
     claimableCount: 0
@@ -87,6 +129,10 @@ let mapState = {
   filter: "all",
   selectedType: null,
   selectedId: null
+};
+let dashboardState = {
+  selectedHotspotId: dashboardHotspotsData[0]?.id || null,
+  activityFilter: "all"
 };
 let liveMap = null;
 let liveMapLayers = [];
@@ -247,34 +293,99 @@ function getRoleRank(role) {
 }
 
 function findMissionById(missionId) {
-  return missionsData.find((mission) => mission.id === missionId) || null;
+  return missionCatalog.find((mission) => mission.id === missionId) || null;
+}
+
+function normalizeMissionRecord(mission) {
+  if (!mission) {
+    return null;
+  }
+
+  return {
+    ...mission,
+    roles: Array.isArray(mission.roles) ? mission.roles : [],
+    steps: Array.isArray(mission.steps) ? mission.steps : [],
+    isActive: mission.isActive !== false
+  };
 }
 
 function buildDefaultQuestBoard() {
-  return {
-    availableQuests: missionsData.map((mission) => ({
+  const availableQuests = missionCatalog
+    .filter((mission) => mission.isActive !== false)
+    .map((mission) => ({
       ...mission,
       access: describeMissionAccess(mission, [])
-    })),
+    }));
+
+  return {
+    availableQuests,
     assignments: [],
     summary: {
       activeCount: 0,
+      submittedCount: 0,
       completedCount: 0,
       totalXpEarned: 0,
-      claimableCount: 0
+      claimableCount: availableQuests.filter((mission) => mission.access.claimable).length
     }
   };
+}
+
+function getQuestStatusMeta(status) {
+  switch (status) {
+    case "accepted":
+      return {
+        label: "Accepted",
+        rewardLabel: "Reward pending confirmation",
+        userLocked: false
+      };
+    case "submitted":
+      return {
+        label: "Submitted for confirmation",
+        rewardLabel: "Awaiting confirmer review",
+        userLocked: true
+      };
+    case "needs_revision":
+      return {
+        label: "Needs revision",
+        rewardLabel: "Revise and resubmit",
+        userLocked: false
+      };
+    case "confirmed":
+      return {
+        label: "Confirmed",
+        rewardLabel: "Rewards granted",
+        userLocked: true
+      };
+    default:
+      return {
+        label: status,
+        rewardLabel: "Reward pending",
+        userLocked: false
+      };
+  }
 }
 
 function describeMissionAccess(mission, assignments = questBoard.assignments) {
   const assignment = assignments.find((entry) => entry.missionId === mission.id) || null;
   if (assignment) {
+    const statusMeta = getQuestStatusMeta(assignment.status);
     return {
       claimable: false,
       state: assignment.status,
       reason:
-        assignment.status === "completed" ? "Completed and rewards already granted." : "Already claimed.",
+        assignment.status === "confirmed"
+          ? "Confirmed and rewards granted."
+          : `${statusMeta.label}.`,
       assignmentId: assignment.id
+    };
+  }
+
+  if (mission.isActive === false) {
+    return {
+      claimable: false,
+      state: "inactive",
+      reason: "Mission is inactive and not accepting new assignments.",
+      assignmentId: null
     };
   }
 
@@ -305,34 +416,45 @@ function describeMissionAccess(mission, assignments = questBoard.assignments) {
 }
 
 function normalizeQuestBoardPayload(payload) {
+  if (Array.isArray(payload?.availableQuests)) {
+    missionCatalog = payload.availableQuests.map((mission) => normalizeMissionRecord(mission)).filter(Boolean);
+  }
+
   const assignments = Array.isArray(payload?.assignments)
     ? payload.assignments
         .map((assignment) => {
-          const mission = assignment.mission || findMissionById(assignment.missionId);
-          return mission ? { ...assignment, mission } : null;
+          const mission = findMissionById(assignment.missionId) || assignment.mission || null;
+          return mission ? { ...assignment, mission, statusMeta: getQuestStatusMeta(assignment.status) } : null;
         })
         .filter(Boolean)
     : [];
 
   const availableQuests = Array.isArray(payload?.availableQuests)
-    ? payload.availableQuests
-    : missionsData.map((mission) => ({
+    ? payload.availableQuests.map((mission) => normalizeMissionRecord(mission)).filter(Boolean)
+    : missionCatalog
+        .filter((mission) => mission.isActive !== false)
+        .map((mission) => ({
         ...mission,
         access: describeMissionAccess(mission, assignments)
-      }));
+        }));
 
   return {
     availableQuests,
     assignments,
     summary: {
-      activeCount: payload?.summary?.activeCount ?? assignments.filter((item) => item.status === "active").length,
+      activeCount:
+        payload?.summary?.activeCount ??
+        assignments.filter((item) => ["accepted", "needs_revision"].includes(item.status)).length,
+      submittedCount:
+        payload?.summary?.submittedCount ??
+        assignments.filter((item) => item.status === "submitted").length,
       completedCount:
         payload?.summary?.completedCount ??
-        assignments.filter((item) => item.status === "completed").length,
+        assignments.filter((item) => item.status === "confirmed").length,
       totalXpEarned:
         payload?.summary?.totalXpEarned ??
         assignments
-          .filter((item) => item.status === "completed")
+          .filter((item) => item.status === "confirmed")
           .reduce((sum, item) => sum + (item.xpReward || 0), 0),
       claimableCount:
         payload?.summary?.claimableCount ??
@@ -342,7 +464,19 @@ function normalizeQuestBoardPayload(payload) {
 }
 
 function getPageUrl(pageName) {
-  return new URL(pageName, window.location.href).toString();
+  const rawTarget = String(pageName || "").trim() || "/";
+  const normalizedTarget = rawTarget.replace(/^\.\//u, "/");
+  const routeConfig =
+    ROUTE_PAGE_LOOKUP.get(rawTarget) ||
+    ROUTE_PAGE_LOOKUP.get(normalizedTarget) ||
+    ROUTE_PAGE_LOOKUP.get(`/${normalizedTarget.replace(/^\//u, "")}`);
+  const useLegacyPath = window.location.protocol === "file:";
+  const path = routeConfig
+    ? useLegacyPath
+      ? routeConfig.legacyPath.replace(/^\//u, "")
+      : routeConfig.routePath
+    : rawTarget;
+  return new URL(path, window.location.href).toString();
 }
 
 function goToPage(pageName) {
@@ -606,10 +740,10 @@ async function getAuthTransport() {
 async function getPostAuthLandingPage(user) {
   const transport = await getAuthTransport();
   if (transport === "browser") {
-    return "dashboard.html";
+    return "dashboard";
   }
 
-  return user?.isAdmin ? "admin.html" : "dashboard.html";
+  return user?.isAdmin ? "admin" : "dashboard";
 }
 
 async function requestJson(url, options = {}) {
@@ -1059,7 +1193,7 @@ async function submitBrowserIdentityVerification() {
 
 async function requestBrowserPasswordReset(body) {
   const client = await getBrowserSupabaseClient();
-  const redirectTo = getPageUrl("reset-password.html");
+  const redirectTo = getPageUrl("reset-password");
   const { error } = await client.auth.resetPasswordForEmail(String(body.email || "").trim(), {
     redirectTo
   });
@@ -1095,6 +1229,11 @@ async function listBrowserUserQuests(client, userId) {
     xpReward: record.xp_reward,
     readinessReward: record.readiness_reward,
     startedAt: record.started_at,
+    submittedAt: record.submitted_at,
+    rewardGrantedAt: record.reward_granted_at,
+    confirmedAt: record.confirmed_at,
+    confirmedBy: record.confirmed_by,
+    confirmationNotes: record.confirmation_notes || "",
     completedAt: record.completed_at,
     createdAt: record.created_at,
     updatedAt: record.updated_at
@@ -1106,10 +1245,12 @@ async function buildBrowserQuestBoard(user) {
   const assignments = await listBrowserUserQuests(client, user.id);
   return normalizeQuestBoardPayload({
     assignments,
-    availableQuests: missionsData.map((mission) => ({
+    availableQuests: missionCatalog
+      .filter((mission) => mission.isActive !== false)
+      .map((mission) => ({
       ...mission,
       access: describeMissionAccess(mission, assignments)
-    }))
+      }))
   });
 }
 
@@ -1134,11 +1275,12 @@ async function claimBrowserQuest(body) {
   const { error } = await client.from("user_quests").insert({
     user_id: sessionPayload.user.id,
     mission_id: mission.id,
-    status: "active",
+    status: "accepted",
     progress_percent: 0,
     notes: "",
     xp_reward: mission.xpReward,
-    readiness_reward: mission.readinessReward
+    readiness_reward: mission.readinessReward,
+    confirmation_notes: ""
   });
   if (error) {
     throw new Error(error.message || "Unable to claim the quest.");
@@ -1163,8 +1305,12 @@ async function updateBrowserQuest(body, questId) {
     throw new Error("Quest not found.");
   }
 
-  if (existingQuest.status === "completed") {
-    throw new Error("Completed quests are read-only.");
+  if (existingQuest.status === "confirmed") {
+    throw new Error("Confirmed quests are read-only.");
+  }
+
+  if (existingQuest.status === "submitted") {
+    throw new Error("This quest is waiting for confirmer review.");
   }
 
   const patch = {};
@@ -1181,16 +1327,20 @@ async function updateBrowserQuest(body, questId) {
   }
 
   if (body.status !== undefined) {
-    if (body.status !== "active" && body.status !== "completed") {
-      throw new Error("Quest status must be active or completed.");
+    if (body.status !== "accepted" && body.status !== "submitted") {
+      throw new Error("Quest status must stay accepted or move to submitted.");
     }
     patch.status = body.status;
   }
 
-  const isCompleting = patch.status === "completed";
-  if (isCompleting) {
-    patch.progress_percent = 100;
-    patch.completed_at = new Date().toISOString();
+  const isSubmitting = patch.status === "submitted";
+  if (isSubmitting) {
+    const progress = patch.progress_percent ?? existingQuest.progressPercent;
+    if (progress < 100) {
+      throw new Error("Quests must reach 100% progress before confirmation can be requested.");
+    }
+
+    patch.submitted_at = new Date().toISOString();
   }
 
   const { error } = await client.from("user_quests").update(patch).eq("id", questId);
@@ -1198,20 +1348,9 @@ async function updateBrowserQuest(body, questId) {
     throw new Error(error.message || "Unable to update the quest.");
   }
 
-  let user = sessionPayload.user;
-  if (isCompleting) {
-    user = await updateBrowserProfile(client, sessionPayload.user.id, {
-      points: (sessionPayload.user.points || 0) + existingQuest.xpReward,
-      readiness_score: Math.min(
-        100,
-        (sessionPayload.user.readinessScore || 0) + existingQuest.readinessReward
-      )
-    });
-  }
-
   return {
-    user,
-    questBoard: await buildBrowserQuestBoard(user)
+    user: sessionPayload.user,
+    questBoard: await buildBrowserQuestBoard(sessionPayload.user)
   };
 }
 
@@ -1326,7 +1465,7 @@ function createNav() {
     ...pageLinksData,
     {
       title: "Account",
-      href: "./account.html",
+      href: getPageUrl("account"),
       description: "Manage your profile details, password, and session settings."
     }
   ];
@@ -1334,14 +1473,14 @@ function createNav() {
   if (sessionUser?.isAdmin) {
     links.push({
       title: "Admin",
-      href: "./admin.html",
+      href: getPageUrl("admin"),
       description: "Review members, roles, verification state, and access controls."
     });
   }
 
   links.forEach((link) => {
     const anchor = document.createElement("a");
-    anchor.href = link.href;
+    anchor.href = getPageUrl(link.href);
     anchor.textContent = link.title;
     anchor.className = currentPage === link.title.toLowerCase() ? "nav-link active" : "nav-link";
     nav.appendChild(anchor);
@@ -1367,7 +1506,7 @@ async function handleSignOut() {
   } catch (error) {
     console.error(error);
   } finally {
-    goToPage("index.html");
+    goToPage("auth");
   }
 }
 
@@ -1437,6 +1576,303 @@ function renderDashboardStats() {
   });
 }
 
+function getHotspotToneClass(tone) {
+  if (tone === "high") {
+    return "tone-high";
+  }
+
+  if (tone === "medium") {
+    return "tone-medium";
+  }
+
+  return "tone-low";
+}
+
+function getDashboardHotspotById(hotspotId) {
+  return dashboardHotspotsData.find((item) => item.id === hotspotId) || dashboardHotspotsData[0] || null;
+}
+
+function getHotspotMission(hotspot) {
+  if (!hotspot?.missionId) {
+    return null;
+  }
+
+  return missionsData.find((mission) => mission.id === hotspot.missionId) || null;
+}
+
+function renderDashboardHeroMiniGrid() {
+  const container = document.getElementById("dashboard-hero-mini-grid");
+  if (!container) {
+    return;
+  }
+
+  const activeHotspot = getDashboardHotspotById(dashboardState.selectedHotspotId);
+  const activeMission = getHotspotMission(activeHotspot);
+  const items = [
+    {
+      label: "Active watch",
+      value: activeHotspot ? activeHotspot.label : "No hotspot",
+      detail: activeHotspot ? `${activeHotspot.state} • ${activeHotspot.window}` : "Awaiting radar data"
+    },
+    {
+      label: "Claimable quests",
+      value: `${questBoard.summary.claimableCount}`,
+      detail: "Ready for your current role"
+    },
+    {
+      label: "Priority route",
+      value: activeMission ? activeMission.title : "Mission board",
+      detail: activeMission ? activeMission.protocol : "Jump into a workflow"
+    }
+  ];
+
+  container.innerHTML = items
+    .map(
+      (item) => `
+        <div class="hero-mini-card">
+          <span>${escapeHtml(item.label)}</span>
+          <strong>${escapeHtml(item.value)}</strong>
+          <small>${escapeHtml(item.detail)}</small>
+        </div>
+      `
+    )
+    .join("");
+}
+
+function renderDashboardHeroFocus() {
+  const container = document.getElementById("dashboard-hero-focus");
+  if (!container) {
+    return;
+  }
+
+  const hotspot = getDashboardHotspotById(dashboardState.selectedHotspotId);
+  const mission = getHotspotMission(hotspot);
+
+  if (!hotspot) {
+    container.innerHTML = "";
+    return;
+  }
+
+  container.innerHTML = `
+    <div class="dashboard-focus-head">
+      <span class="mission-risk ${getHotspotToneClass(hotspot.tone)}">${escapeHtml(hotspot.coverage)}</span>
+      <strong>${escapeHtml(hotspot.label)}</strong>
+    </div>
+    <p>${escapeHtml(hotspot.summary)}</p>
+    <div class="dashboard-focus-meta">
+      <span>${escapeHtml(hotspot.state)}</span>
+      <span>${escapeHtml(hotspot.window)} window</span>
+      <span>${hotspot.pings} pings</span>
+    </div>
+    <a class="secondary-button compact-button" href="${escapeHtml(
+      getPageUrl(mission ? "missions" : "map")
+    )}">${mission ? "Review mission" : "Open map"}</a>
+  `;
+}
+
+function renderDashboardRadar() {
+  const list = document.getElementById("dashboard-radar-list");
+  const detail = document.getElementById("dashboard-radar-detail");
+  if (!list || !detail) {
+    return;
+  }
+
+  const selectedHotspot = getDashboardHotspotById(dashboardState.selectedHotspotId);
+  const selectedMission = getHotspotMission(selectedHotspot);
+
+  list.innerHTML = "";
+
+  dashboardHotspotsData.forEach((hotspot) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `dashboard-radar-item ${
+      hotspot.id === selectedHotspot?.id ? "active" : ""
+    } ${getHotspotToneClass(hotspot.tone)}`;
+    button.innerHTML = `
+      <span>${escapeHtml(hotspot.coverage)}</span>
+      <strong>${escapeHtml(hotspot.label)}</strong>
+      <small>${escapeHtml(hotspot.state)} • ${escapeHtml(hotspot.window)}</small>
+      <div class="dashboard-radar-metrics">
+        <b>${hotspot.pings}</b>
+        <small>pings</small>
+      </div>
+    `;
+    button.addEventListener("click", () => {
+      dashboardState.selectedHotspotId = hotspot.id;
+      renderDashboardExperience();
+    });
+    list.appendChild(button);
+  });
+
+  if (!selectedHotspot) {
+    detail.innerHTML = "";
+    return;
+  }
+
+  detail.innerHTML = `
+    <div class="dashboard-detail-stage ${getHotspotToneClass(selectedHotspot.tone)}">
+      <div class="dashboard-detail-topline">
+        <span class="mission-risk ${getHotspotToneClass(selectedHotspot.tone)}">${escapeHtml(
+          selectedHotspot.coverage
+        )}</span>
+        <span class="chip">${selectedHotspot.pings} live pings</span>
+      </div>
+      <h4>${escapeHtml(selectedHotspot.label)} radar focus</h4>
+      <p class="mission-description">${escapeHtml(selectedHotspot.summary)}</p>
+      <div class="dashboard-detail-stats">
+        <div>
+          <span class="profile-label">Recommended response</span>
+          <strong>${escapeHtml(selectedHotspot.response)}</strong>
+        </div>
+        <div>
+          <span class="profile-label">Linked mission</span>
+          <strong>${escapeHtml(selectedMission?.title || "Open workflow routing")}</strong>
+        </div>
+        <div>
+          <span class="profile-label">Window</span>
+          <strong>${escapeHtml(selectedHotspot.window)}</strong>
+        </div>
+        <div>
+          <span class="profile-label">Trust lane</span>
+          <strong>${escapeHtml(selectedMission?.minimumRole || seededProfile.role)}</strong>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function renderDashboardActionGrid() {
+  const container = document.getElementById("dashboard-action-grid");
+  if (!container) {
+    return;
+  }
+
+  const hotspot = getDashboardHotspotById(dashboardState.selectedHotspotId);
+  const mission = getHotspotMission(hotspot);
+  const cards = dashboardQuickActionsData.slice();
+
+  if (hotspot && mission) {
+    cards.unshift({
+      id: `focus-${hotspot.id}`,
+      title: `Focus ${hotspot.label}`,
+      detail: hotspot.response,
+      href: getPageUrl("missions"),
+      cta: `Open ${mission.title}`
+    });
+  }
+
+  container.innerHTML = cards
+    .map(
+      (card) => `
+        <a class="dashboard-action-card" href="${escapeHtml(getPageUrl(card.href))}">
+          <strong>${escapeHtml(card.title)}</strong>
+          <span>${escapeHtml(card.detail)}</span>
+          <b>${escapeHtml(card.cta)}</b>
+        </a>
+      `
+    )
+    .join("");
+}
+
+function renderDashboardActivityFilters() {
+  const container = document.getElementById("dashboard-activity-filters");
+  if (!container) {
+    return;
+  }
+
+  const filters = [
+    { id: "all", label: "All signals" },
+    { id: "missions", label: "Missions" },
+    { id: "reports", label: "Reports" },
+    { id: "safety", label: "Safety" },
+    { id: "training", label: "Training" }
+  ];
+
+  container.innerHTML = "";
+
+  filters.forEach((filter) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `filter-button ${
+      dashboardState.activityFilter === filter.id ? "active" : ""
+    }`;
+    button.textContent = filter.label;
+    button.addEventListener("click", () => {
+      dashboardState.activityFilter = filter.id;
+      renderDashboardActivityFilters();
+      renderDashboardActivityList();
+    });
+    container.appendChild(button);
+  });
+}
+
+function renderDashboardActivityList() {
+  const container = document.getElementById("dashboard-activity-list");
+  if (!container) {
+    return;
+  }
+
+  const items = dashboardActivityData.filter(
+    (item) => dashboardState.activityFilter === "all" || item.category === dashboardState.activityFilter
+  );
+
+  container.innerHTML = items
+    .map(
+      (item) => `
+        <article class="dashboard-activity-item ${getHotspotToneClass(item.tone)}">
+          <div class="dashboard-activity-topline">
+            <span class="mission-risk ${getHotspotToneClass(item.tone)}">${escapeHtml(item.category)}</span>
+            <span>${escapeHtml(item.time)}</span>
+          </div>
+          <strong>${escapeHtml(item.title)}</strong>
+          <p>${escapeHtml(item.detail)}</p>
+          <small>${escapeHtml(item.actor)}</small>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderDashboardReports() {
+  const container = document.getElementById("dashboard-report-list");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = dashboardReportsData
+    .map(
+      (report) => `
+        <article class="dashboard-report-item">
+          <div class="dashboard-activity-topline">
+            <strong>${escapeHtml(report.title)}</strong>
+            <span>${escapeHtml(report.confidence)}</span>
+          </div>
+          <p>${escapeHtml(report.status)}</p>
+          <small>${escapeHtml(report.state)} • ${escapeHtml(report.channel)}</small>
+        </article>
+      `
+    )
+    .join("");
+}
+
+function renderDashboardExperience() {
+  if (currentPage !== "dashboard") {
+    return;
+  }
+
+  if (!dashboardState.selectedHotspotId && dashboardHotspotsData[0]?.id) {
+    dashboardState.selectedHotspotId = dashboardHotspotsData[0].id;
+  }
+
+  renderDashboardHeroMiniGrid();
+  renderDashboardHeroFocus();
+  renderDashboardRadar();
+  renderDashboardActionGrid();
+  renderDashboardActivityFilters();
+  renderDashboardActivityList();
+  renderDashboardReports();
+}
+
 function renderPageLinks() {
   const container = document.getElementById("page-link-grid");
   if (!container) {
@@ -1450,7 +1886,7 @@ function renderPageLinks() {
     .concat([
       {
         title: "Account",
-        href: "./account.html",
+        href: getPageUrl("account"),
         description: "Update your name, state, password, and device location."
       }
     ]);
@@ -1458,7 +1894,7 @@ function renderPageLinks() {
   if (sessionUser?.isAdmin) {
     links.push({
       title: "Admin",
-      href: "./admin.html",
+      href: getPageUrl("admin"),
       description: "Manage users, verification, points, and elevated access."
     });
   }
@@ -1466,7 +1902,7 @@ function renderPageLinks() {
   links.forEach((link) => {
     const anchor = document.createElement("a");
     anchor.className = "page-link-card";
-    anchor.href = link.href;
+    anchor.href = getPageUrl(link.href);
     anchor.innerHTML = `<strong>${link.title}</strong><span>${link.description}</span>`;
     container.appendChild(anchor);
   });
@@ -1616,19 +2052,19 @@ function renderQuestSummary() {
       <span>Assignments currently in progress</span>
     </article>
     <article class="mini-stat">
-      <p>Completed</p>
-      <strong>${questBoard.summary.completedCount}</strong>
-      <span>Finished with rewards applied</span>
+      <p>Awaiting confirmation</p>
+      <strong>${questBoard.summary.submittedCount}</strong>
+      <span>Ready for a confirmer to review</span>
     </article>
     <article class="mini-stat">
-      <p>Claimable now</p>
-      <strong>${questBoard.summary.claimableCount}</strong>
-      <span>Unlocked by your current role and readiness</span>
+      <p>Confirmed</p>
+      <strong>${questBoard.summary.completedCount}</strong>
+      <span>Rewards granted after review</span>
     </article>
     <article class="mini-stat">
       <p>Quest XP earned</p>
       <strong>${questBoard.summary.totalXpEarned}</strong>
-      <span>Total rewards from completed quests</span>
+      <span>Total rewards from confirmed quests</span>
     </article>
   `;
 }
@@ -1642,9 +2078,13 @@ function buildMissionBrief(mission, access) {
 
   return `
     <strong>${escapeHtml(mission.title)}</strong><br />
+    Quest giver: ${escapeHtml(mission.questGiver || "Operations board")}<br />
+    Quest confirmer: ${escapeHtml(mission.questConfirmer || "Command review")}<br />
     Access: ${escapeHtml(mission.risk)}<br />
     Unlock: ${escapeHtml(access.reason)}<br />
-    Rewards: ${mission.xpReward} XP and ${mission.readinessReward}% readiness<br />
+    Rewards: ${mission.xpReward} XP, ${mission.readinessReward}% readiness, ${escapeHtml(
+      mission.rewardLabel || "mission credit"
+    )}<br />
     Protocol: ${escapeHtml(mission.protocol)}<br />
     ${steps}
   `;
@@ -1658,7 +2098,7 @@ function updateMissionPreview(message) {
 }
 
 async function handleQuestClaim(missionId) {
-  updateMissionPreview("Claiming quest...");
+  updateMissionPreview("Accepting quest...");
 
   try {
     const payload = await requestJson("/api/quests", {
@@ -1671,13 +2111,13 @@ async function handleQuestClaim(missionId) {
     }
     questBoard = normalizeQuestBoardPayload(payload.questBoard);
     refreshQuestViews();
-    updateMissionPreview("Quest claimed. Track your progress in My quests.");
+    updateMissionPreview("Quest accepted. Track your progress in My quests.");
   } catch (error) {
     updateMissionPreview(escapeHtml(error.message));
   }
 }
 
-async function handleQuestSave(questId, form, shouldComplete = false) {
+async function handleQuestSave(questId, form, shouldSubmit = false) {
   const progress = Number(form.elements.progressPercent.value);
   const notes = form.elements.notes.value;
 
@@ -1685,9 +2125,9 @@ async function handleQuestSave(questId, form, shouldComplete = false) {
     const payload = await requestJson(`/api/quests/${questId}`, {
       method: "PATCH",
       body: JSON.stringify({
-        progressPercent: shouldComplete ? 100 : progress,
+        progressPercent: shouldSubmit ? 100 : progress,
         notes,
-        status: shouldComplete ? "completed" : "active"
+        status: shouldSubmit ? "submitted" : "accepted"
       })
     });
 
@@ -1697,8 +2137,8 @@ async function handleQuestSave(questId, form, shouldComplete = false) {
     questBoard = normalizeQuestBoardPayload(payload.questBoard);
     refreshQuestViews();
     updateMissionPreview(
-      shouldComplete
-        ? "Quest completed. Rewards have been added to your profile."
+      shouldSubmit
+        ? "Quest submitted to the confirmer. Rewards will apply after approval."
         : "Quest progress saved."
     );
   } catch (error) {
@@ -1718,7 +2158,7 @@ function renderMyQuests() {
 
   if (!questBoard.assignments.length) {
     list.innerHTML =
-      '<article class="mission-card"><h4>No quests claimed yet</h4><p class="mission-description">Claim a quest from the board to start tracking notes, progress, and rewards.</p></article>';
+      '<article class="mission-card"><h4>No quests accepted yet</h4><p class="mission-description">Accept a quest from the board to start tracking notes, progress, and rewards.</p></article>';
     return;
   }
 
@@ -1728,23 +2168,30 @@ function renderMyQuests() {
     const mission = assignment.mission;
     const card = document.createElement("article");
     card.className = "mission-card quest-progress-card";
-    const isCompleted = assignment.status === "completed";
+    const statusMeta = assignment.statusMeta || getQuestStatusMeta(assignment.status);
+    const isConfirmed = assignment.status === "confirmed";
+    const isSubmitted = assignment.status === "submitted";
+    const isLocked = statusMeta.userLocked;
     card.innerHTML = `
       <div class="mission-topline">
         <span class="mission-type">${escapeHtml(mission.type.replace("realworld", "real-world"))}</span>
-        <span class="mission-risk">${isCompleted ? "Completed" : "Active quest"}</span>
+        <span class="mission-risk">${escapeHtml(statusMeta.label)}</span>
       </div>
       <h4>${escapeHtml(mission.title)}</h4>
       <p class="mission-description">${escapeHtml(mission.description)}</p>
       <div class="quest-progress-meta">
         <span>Reward: ${assignment.xpReward} XP</span>
         <span>Readiness: +${assignment.readinessReward}%</span>
+        <span>Giver: ${escapeHtml(mission.questGiver || "Operations")}</span>
+        <span>Confirmer: ${escapeHtml(mission.questConfirmer || "Review queue")}</span>
+        <span>Submitted: ${assignment.submittedAt ? new Date(assignment.submittedAt).toLocaleString() : "Not yet"}</span>
+        <span>Confirmed: ${assignment.confirmedAt ? new Date(assignment.confirmedAt).toLocaleString() : "Pending admin review"}</span>
       </div>
       <form class="quest-progress-form">
         <label>
           Progress
           <input name="progressPercent" type="range" min="0" max="100" step="5" value="${assignment.progressPercent}" ${
-            isCompleted ? "disabled" : ""
+            isLocked ? "disabled" : ""
           } />
         </label>
         <div class="quest-progress-meter">
@@ -1753,23 +2200,37 @@ function renderMyQuests() {
         <div class="quest-progress-value">${assignment.progressPercent}% complete</div>
         <label>
           Field notes
-          <textarea name="notes" rows="4" ${isCompleted ? "disabled" : ""}>${escapeHtml(
+          <textarea name="notes" rows="4" ${isLocked ? "disabled" : ""}>${escapeHtml(
             assignment.notes || ""
+          )}</textarea>
+        </label>
+        <label>
+          Confirmer notes
+          <textarea name="confirmationNotes" rows="3" disabled>${escapeHtml(
+            assignment.confirmationNotes || "No confirmer notes yet."
           )}</textarea>
         </label>
         <div class="mission-footer">
           <div class="required-roles"><span>${escapeHtml(mission.minimumRole)}</span></div>
           <div class="quest-actions">
             ${
-              isCompleted
+              isConfirmed
                 ? `<button class="secondary-button" type="button" disabled>Rewards applied</button>`
-                : `<button class="secondary-button" data-action="save" type="submit">Save progress</button>
-                   <button class="primary-button" data-action="complete" type="button">Complete quest</button>`
+                : isSubmitted
+                  ? `<button class="secondary-button" type="button" disabled>Waiting for confirmer</button>`
+                  : `<button class="secondary-button" data-action="save" type="submit">Save progress</button>
+                   <button class="primary-button" data-action="submit" type="button">Submit for confirmation</button>`
             }
           </div>
         </div>
-        <div class="form-feedback ${isCompleted ? "success" : "info"}">${
-          isCompleted ? "Quest completed." : "Update progress and notes as you work."
+        <div class="form-feedback ${isConfirmed ? "success" : isSubmitted ? "info" : "info"}">${
+          isConfirmed
+            ? "Quest confirmed and rewards granted."
+            : isSubmitted
+              ? "Awaiting confirmer review."
+              : assignment.status === "needs_revision"
+                ? "Revise the quest based on confirmer notes, then resubmit."
+                : "Update progress and notes as you work."
         }</div>
       </form>
     `;
@@ -1786,13 +2247,13 @@ function renderMyQuests() {
       });
     }
 
-    if (!isCompleted) {
+    if (!isLocked) {
       form.addEventListener("submit", async (event) => {
         event.preventDefault();
         await handleQuestSave(assignment.id, form, false);
       });
 
-      form.querySelector('[data-action="complete"]').addEventListener("click", async () => {
+      form.querySelector('[data-action="submit"]').addEventListener("click", async () => {
         slider.value = "100";
         value.textContent = "100% complete";
         meter.style.width = "100%";
@@ -1826,11 +2287,15 @@ function renderMissions(filter = "all") {
         <h4>${escapeHtml(mission.title)}</h4>
         <p class="mission-description">${escapeHtml(mission.description)}</p>
         <div class="mission-meta">
+          Quest giver: ${escapeHtml(mission.questGiver || "Operations board")}<br />
+          Quest confirmer: ${escapeHtml(mission.questConfirmer || "Command review")}<br />
           Location: ${escapeHtml(mission.location)}<br />
           Window: ${escapeHtml(mission.schedule)}<br />
           Protocol: ${escapeHtml(mission.protocol)}<br />
           Minimum role: ${escapeHtml(mission.minimumRole)}<br />
-          Rewards: ${mission.xpReward} XP and ${mission.readinessReward}% readiness
+          Rewards: ${mission.xpReward} XP, ${mission.readinessReward}% readiness, ${escapeHtml(
+            mission.rewardLabel || "mission credit"
+          )}
         </div>
         <div class="mission-footer">
           <div class="required-roles"></div>
@@ -1838,7 +2303,7 @@ function renderMissions(filter = "all") {
             <button class="secondary-button mission-button" type="button">View brief</button>
             <button class="primary-button mission-claim-button" type="button" ${
               access.claimable ? "" : "disabled"
-            }>${access.claimable ? "Claim quest" : access.state === "completed" ? "Completed" : access.state === "active" ? "In progress" : "Locked"}</button>
+            }>${access.claimable ? "Accept quest" : access.state === "confirmed" ? "Confirmed" : access.state === "submitted" ? "Pending review" : access.state === "needs_revision" ? "Needs revision" : access.state === "accepted" ? "Accepted" : access.state === "inactive" ? "Inactive" : "Locked"}</button>
           </div>
         </div>
         <div class="quest-status-note">${escapeHtml(access.reason)}</div>
@@ -1870,23 +2335,27 @@ function renderDashboardQuestPanel() {
     return;
   }
 
-  const activeAssignments = questBoard.assignments.filter((assignment) => assignment.status === "active");
+  const activeAssignments = questBoard.assignments.filter((assignment) =>
+    ["accepted", "needs_revision", "submitted"].includes(assignment.status)
+  );
   panel.innerHTML = `
     <div class="section-heading">
       <div>
         <p class="eyebrow">Quest system</p>
         <h3>Your live board</h3>
       </div>
-      <a class="secondary-button compact-button" href="./missions.html">Open quests</a>
+      <a class="secondary-button compact-button" href="${escapeHtml(
+        getPageUrl("missions")
+      )}">Open quests</a>
     </div>
     <div class="dashboard-quest-stack">
       <div class="quest-dashboard-stat">
         <strong>${questBoard.summary.activeCount}</strong>
-        <span>active quests</span>
+        <span>editable quests</span>
       </div>
       <div class="quest-dashboard-stat">
-        <strong>${questBoard.summary.claimableCount}</strong>
-        <span>ready to claim</span>
+        <strong>${questBoard.summary.submittedCount}</strong>
+        <span>awaiting confirmation</span>
       </div>
       <div class="quest-dashboard-stat">
         <strong>${questBoard.summary.totalXpEarned}</strong>
@@ -1902,12 +2371,12 @@ function renderDashboardQuestPanel() {
                 (assignment) => `
                   <article class="dashboard-quest-card">
                     <strong>${escapeHtml(assignment.mission.title)}</strong>
-                    <span>${assignment.progressPercent}% complete</span>
+                    <span>${escapeHtml((assignment.statusMeta || getQuestStatusMeta(assignment.status)).label)}</span>
                   </article>
                 `
               )
               .join("")
-          : '<article class="dashboard-quest-card"><strong>No active quests</strong><span>Claim a quest from the mission board to start earning rewards.</span></article>'
+          : '<article class="dashboard-quest-card"><strong>No active quests</strong><span>Accept a quest from the mission board to start earning rewards.</span></article>'
       }
     </div>
   `;
@@ -1921,6 +2390,7 @@ function refreshQuestViews() {
   renderMyQuests();
   renderMissions(document.querySelector("[data-filter].active")?.dataset.filter || "all");
   renderDashboardQuestPanel();
+  renderDashboardExperience();
 }
 
 function wireMissionFilters() {
@@ -2047,13 +2517,129 @@ function renderRoadmap() {
 
   roadmapData.forEach((step) => {
     const card = document.createElement("article");
-    card.className = "roadmap-step";
+    const stepStatus = String(step.status || "planned");
+    card.className = `roadmap-step roadmap-step-${stepStatus}`;
     card.innerHTML = `
-      <span class="eyebrow">${step.week}</span>
-      <strong>${step.title}</strong>
-      <p>${step.detail}</p>
+      <div class="roadmap-step-topline">
+        <span class="eyebrow">${escapeHtml(step.week)}</span>
+        <span class="roadmap-status-chip roadmap-status-${stepStatus}">${escapeHtml(stepStatus)}</span>
+      </div>
+      <strong>${escapeHtml(step.title)}</strong>
+      <p>${escapeHtml(step.detail)}</p>
+      <small>${escapeHtml(step.progressLabel || "")}</small>
     `;
     grid.appendChild(card);
+  });
+}
+
+function renderRoadmapPhases() {
+  const list = document.getElementById("roadmap-phase-list");
+  if (!list) {
+    return;
+  }
+
+  list.innerHTML = "";
+
+  roadmapPhasesData.forEach((phase) => {
+    const article = document.createElement("article");
+    const status = String(phase.status || "planned");
+    const deliverables = Array.isArray(phase.deliverables) ? phase.deliverables : [];
+
+    article.className = "roadmap-phase-card";
+    article.innerHTML = `
+      <div class="roadmap-phase-copy">
+        <div class="roadmap-step-topline">
+          <span class="eyebrow">${escapeHtml(phase.week || "")}</span>
+          <span class="roadmap-status-chip roadmap-status-${status}">${escapeHtml(status)}</span>
+        </div>
+        <h4>${escapeHtml(phase.title || "")}</h4>
+        <p>${escapeHtml(phase.summary || "")}</p>
+        <p class="roadmap-phase-outcome">${escapeHtml(phase.outcome || "")}</p>
+      </div>
+      <div class="roadmap-deliverable-list">
+        ${deliverables
+          .map((item) => {
+            const itemStatus = String(item.status || "planned");
+            const label = escapeHtml(item.label || "");
+            const href = item.href ? getPageUrl(item.href) : "";
+            const linkMarkup = href
+              ? `<a href="${href}">${label}</a>`
+              : `<span>${label}</span>`;
+
+            return `
+              <div class="roadmap-deliverable">
+                <div class="roadmap-deliverable-copy">
+                  ${linkMarkup}
+                </div>
+                <span class="roadmap-status-chip roadmap-status-${itemStatus}">${escapeHtml(itemStatus)}</span>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `;
+
+    list.appendChild(article);
+  });
+}
+
+function renderRoadmapFocus() {
+  const list = document.getElementById("roadmap-focus-list");
+  if (!list) {
+    return;
+  }
+
+  list.innerHTML = "";
+
+  roadmapFocusData.forEach((item) => {
+    const card = document.createElement("article");
+    const status = String(item.status || "next");
+
+    card.className = `roadmap-focus-card roadmap-focus-${status}`;
+    card.innerHTML = `
+      <span class="roadmap-focus-label">${escapeHtml(status)}</span>
+      <strong>${escapeHtml(item.title || "")}</strong>
+      <p>${escapeHtml(item.detail || "")}</p>
+    `;
+    list.appendChild(card);
+  });
+}
+
+function renderRoadmapPageLinks() {
+  const container = document.getElementById("roadmap-page-links");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = "";
+
+  const links = pageLinksData
+    .filter((link) => !["dashboard", "roadmap"].includes(String(link.title || "").toLowerCase()))
+    .concat([
+      {
+        title: "Account",
+        href: getPageUrl("account"),
+        description: "Manage profile details, password changes, and location preferences."
+      }
+    ]);
+
+  if (sessionUser?.isAdmin) {
+    links.push({
+      title: "Admin",
+      href: getPageUrl("admin"),
+      description: "Review user access, verification state, and quest operations."
+    });
+  }
+
+  links.forEach((link) => {
+    const anchor = document.createElement("a");
+    anchor.className = "page-link-card";
+    anchor.href = getPageUrl(link.href);
+    anchor.innerHTML = `
+      <strong>${escapeHtml(link.title || "")}</strong>
+      <span>${escapeHtml(link.description || "")}</span>
+    `;
+    container.appendChild(anchor);
   });
 }
 
@@ -2869,7 +3455,7 @@ async function initPasswordResetPage() {
 
       setFeedback(feedbackId, "Password updated. Redirecting to sign in...", "success");
       window.setTimeout(() => {
-        goToPage("index.html");
+        goToPage("auth");
       }, 900);
     } catch (error) {
       setFeedback(feedbackId, error.message || "Unable to update your password.", "error");
@@ -3258,6 +3844,8 @@ function renderAdminSummary() {
     ["Phone + ID complete", "Officer path approved"].includes(user.verificationStatus)
   ).length;
   const adminCount = adminUsers.filter((user) => user.isAdmin).length;
+  const activeMissionCount = adminMissionRecords.filter((mission) => mission.isActive !== false).length;
+  const submittedQuestCount = adminQuestRecords.filter((quest) => quest.status === "submitted").length;
 
   summary.innerHTML = `
     <article class="stat-card">
@@ -3269,6 +3857,16 @@ function renderAdminSummary() {
       <p>Verified members</p>
       <strong>${verifiedCount}</strong>
       <span>ID-complete or officer-approved</span>
+    </article>
+    <article class="stat-card">
+      <p>Active missions</p>
+      <strong>${activeMissionCount}</strong>
+      <span>Mission briefs available to members</span>
+    </article>
+    <article class="stat-card">
+      <p>Quest reviews</p>
+      <strong>${submittedQuestCount}</strong>
+      <span>Submitted quests waiting on confirmation</span>
     </article>
     <article class="stat-card">
       <p>Admin users</p>
@@ -3444,20 +4042,491 @@ function renderAdminIdentityList() {
   wireAdminIdentityForms();
 }
 
+function buildMissionFormValues(form) {
+  return {
+    title: form.elements.title.value,
+    type: form.elements.type.value,
+    risk: form.elements.risk.value,
+    questGiver: form.elements.questGiver.value,
+    questConfirmer: form.elements.questConfirmer.value,
+    description: form.elements.description.value,
+    location: form.elements.location.value,
+    schedule: form.elements.schedule.value,
+    roles: form.elements.roles.value
+      .split(/\r?\n|,/u)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    protocol: form.elements.protocol.value,
+    minimumRole: form.elements.minimumRole.value,
+    minReadiness: Number(form.elements.minReadiness.value),
+    xpReward: Number(form.elements.xpReward.value),
+    readinessReward: Number(form.elements.readinessReward.value),
+    rewardLabel: form.elements.rewardLabel.value,
+    steps: form.elements.steps.value
+      .split(/\r?\n/u)
+      .map((item) => item.trim())
+      .filter(Boolean),
+    isActive: form.elements.isActive.checked
+  };
+}
+
+function buildMissionTypeOptions(selectedValue) {
+  return [
+    { value: "online", label: "Online" },
+    { value: "hybrid", label: "Hybrid" },
+    { value: "realworld", label: "Real-world support" }
+  ]
+    .map(
+      (option) =>
+        `<option value="${option.value}" ${option.value === selectedValue ? "selected" : ""}>${option.label}</option>`
+    )
+    .join("");
+}
+
+function buildAdminMissionCard(mission) {
+  const roleOptions = ROLE_OPTIONS.map(
+    (role) =>
+      `<option value="${role}" ${role === mission.minimumRole ? "selected" : ""}>${role}</option>`
+  ).join("");
+
+  return `
+    <article class="admin-user-card" data-mission-id="${mission.id}">
+      <div class="admin-user-head">
+        <div>
+          <strong>${escapeHtml(mission.title)}</strong>
+          <span>${escapeHtml(mission.id)} · ${escapeHtml(mission.isActive ? "Active" : "Inactive")}</span>
+        </div>
+        <span class="chip">${escapeHtml(mission.type.replace("realworld", "real-world"))}</span>
+      </div>
+      <form class="admin-mission-form">
+        <label>
+          Title
+          <input name="title" type="text" value="${escapeHtml(mission.title)}" />
+        </label>
+        <label>
+          Type
+          <select name="type">${buildMissionTypeOptions(mission.type)}</select>
+        </label>
+        <label>
+          Risk
+          <input name="risk" type="text" value="${escapeHtml(mission.risk || "")}" />
+        </label>
+        <label>
+          Minimum role
+          <select name="minimumRole">${roleOptions}</select>
+        </label>
+        <label>
+          Quest giver
+          <input name="questGiver" type="text" value="${escapeHtml(mission.questGiver || "")}" />
+        </label>
+        <label>
+          Quest confirmer
+          <input name="questConfirmer" type="text" value="${escapeHtml(mission.questConfirmer || "")}" />
+        </label>
+        <label class="span-two-field">
+          Description
+          <textarea name="description" rows="3">${escapeHtml(mission.description || "")}</textarea>
+        </label>
+        <label>
+          Location
+          <input name="location" type="text" value="${escapeHtml(mission.location || "")}" />
+        </label>
+        <label>
+          Schedule
+          <input name="schedule" type="text" value="${escapeHtml(mission.schedule || "")}" />
+        </label>
+        <label class="span-two-field">
+          Roles
+          <textarea name="roles" rows="2" placeholder="Spotter, Verifier">${escapeHtml(
+            (mission.roles || []).join(", ")
+          )}</textarea>
+        </label>
+        <label class="span-two-field">
+          Protocol
+          <input name="protocol" type="text" value="${escapeHtml(mission.protocol || "")}" />
+        </label>
+        <label>
+          Minimum readiness
+          <input name="minReadiness" type="number" min="0" max="100" value="${mission.minReadiness || 0}" />
+        </label>
+        <label>
+          XP reward
+          <input name="xpReward" type="number" min="0" value="${mission.xpReward || 0}" />
+        </label>
+        <label>
+          Readiness reward
+          <input name="readinessReward" type="number" min="0" max="100" value="${mission.readinessReward || 0}" />
+        </label>
+        <label>
+          Reward label
+          <input name="rewardLabel" type="text" value="${escapeHtml(mission.rewardLabel || "")}" />
+        </label>
+        <label class="span-two-field">
+          Steps
+          <textarea name="steps" rows="4" placeholder="One step per line">${escapeHtml(
+            (mission.steps || []).join("\n")
+          )}</textarea>
+        </label>
+        <label class="toggle-field">
+          <input name="isActive" type="checkbox" ${mission.isActive ? "checked" : ""} />
+          Mission is active
+        </label>
+        <div class="quest-actions">
+          <button class="primary-button" type="submit">Save mission</button>
+          <button class="secondary-button" data-action="delete" type="button">Delete mission</button>
+        </div>
+      </form>
+      <div class="form-feedback" id="mission-admin-feedback-${mission.id}"></div>
+    </article>
+  `;
+}
+
+function wireAdminMissionForms() {
+  document.querySelectorAll(".admin-mission-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const card = form.closest("[data-mission-id]");
+      const missionId = card?.dataset.missionId;
+      if (!missionId) {
+        return;
+      }
+
+      setFeedback(`mission-admin-feedback-${missionId}`, "Saving mission...");
+
+      try {
+        const payload = await requestJson(`/api/admin/missions/${missionId}`, {
+          method: "PATCH",
+          body: JSON.stringify(buildMissionFormValues(form))
+        });
+
+        adminMissionRecords = adminMissionRecords.map((record) =>
+          record.id === missionId ? normalizeMissionRecord(payload.mission) : record
+        );
+        missionCatalog = adminMissionRecords.slice();
+        questBoard = normalizeQuestBoardPayload(questBoard);
+        renderAdminSummary();
+        renderAdminMissionList();
+        refreshQuestViews();
+        setFeedback(`mission-admin-feedback-${missionId}`, "Mission updated.", "success");
+      } catch (error) {
+        setFeedback(`mission-admin-feedback-${missionId}`, error.message, "error");
+      }
+    });
+
+    const deleteButton = form.querySelector('[data-action="delete"]');
+    deleteButton?.addEventListener("click", async () => {
+      const card = form.closest("[data-mission-id]");
+      const missionId = card?.dataset.missionId;
+      if (!missionId) {
+        return;
+      }
+
+      setFeedback(`mission-admin-feedback-${missionId}`, "Deleting mission...");
+
+      try {
+        await requestJson(`/api/admin/missions/${missionId}`, { method: "DELETE" });
+        adminMissionRecords = adminMissionRecords.filter((record) => record.id !== missionId);
+        missionCatalog = adminMissionRecords.slice();
+        questBoard = normalizeQuestBoardPayload(questBoard);
+        renderAdminSummary();
+        renderAdminMissionList();
+        refreshQuestViews();
+      } catch (error) {
+        setFeedback(`mission-admin-feedback-${missionId}`, error.message, "error");
+      }
+    });
+  });
+
+  const createForm = document.getElementById("admin-mission-create-form");
+  if (createForm && !createForm.dataset.wired) {
+    createForm.dataset.wired = "true";
+    createForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      setFeedback("mission-admin-create-feedback", "Creating mission...");
+
+      try {
+        const payload = await requestJson("/api/admin/missions", {
+          method: "POST",
+          body: JSON.stringify(buildMissionFormValues(createForm))
+        });
+
+        const nextMission = normalizeMissionRecord(payload.mission);
+        adminMissionRecords = [...adminMissionRecords, nextMission].sort((left, right) =>
+          left.title.localeCompare(right.title)
+        );
+        missionCatalog = adminMissionRecords.slice();
+        questBoard = normalizeQuestBoardPayload(questBoard);
+        renderAdminSummary();
+        renderAdminMissionList();
+        refreshQuestViews();
+        createForm.reset();
+        createForm.elements.type.value = "online";
+        createForm.elements.minimumRole.value = ROLE_OPTIONS[0];
+        createForm.elements.isActive.checked = true;
+        setFeedback("mission-admin-create-feedback", "Mission created.", "success");
+      } catch (error) {
+        setFeedback("mission-admin-create-feedback", error.message, "error");
+      }
+    });
+  }
+}
+
+function renderAdminMissionList() {
+  const createContainer = document.getElementById("admin-mission-create");
+  const listContainer = document.getElementById("admin-mission-list");
+  if (!createContainer || !listContainer) {
+    return;
+  }
+
+  const roleOptions = ROLE_OPTIONS.map((role) => `<option value="${role}">${role}</option>`).join("");
+  createContainer.innerHTML = `
+    <form class="admin-user-form" id="admin-mission-create-form">
+      <label>
+        Title
+        <input name="title" type="text" placeholder="Mission title" />
+      </label>
+      <label>
+        Type
+        <select name="type">${buildMissionTypeOptions("online")}</select>
+      </label>
+      <label>
+        Risk
+        <input name="risk" type="text" placeholder="Moderate oversight" />
+      </label>
+      <label>
+        Minimum role
+        <select name="minimumRole">${roleOptions}</select>
+      </label>
+      <label>
+        Quest giver
+        <input name="questGiver" type="text" placeholder="Dispatcher Nyra" />
+      </label>
+      <label>
+        Quest confirmer
+        <input name="questConfirmer" type="text" placeholder="Moderator Sable" />
+      </label>
+      <label class="span-two-field">
+        Description
+        <textarea name="description" rows="3" placeholder="Mission description"></textarea>
+      </label>
+      <label>
+        Location
+        <input name="location" type="text" placeholder="Remote / Pacific time" />
+      </label>
+      <label>
+        Schedule
+        <input name="schedule" type="text" placeholder="Tonight, 7:00 PM" />
+      </label>
+      <label class="span-two-field">
+        Roles
+        <textarea name="roles" rows="2" placeholder="Spotter, Verifier"></textarea>
+      </label>
+      <label class="span-two-field">
+        Protocol
+        <input name="protocol" type="text" placeholder="Evidence template required" />
+      </label>
+      <label>
+        Minimum readiness
+        <input name="minReadiness" type="number" min="0" max="100" value="0" />
+      </label>
+      <label>
+        XP reward
+        <input name="xpReward" type="number" min="0" value="0" />
+      </label>
+      <label>
+        Readiness reward
+        <input name="readinessReward" type="number" min="0" max="100" value="0" />
+      </label>
+      <label>
+        Reward label
+        <input name="rewardLabel" type="text" placeholder="Mission credit" />
+      </label>
+      <label class="span-two-field">
+        Steps
+        <textarea name="steps" rows="4" placeholder="One step per line"></textarea>
+      </label>
+      <label class="toggle-field">
+        <input name="isActive" type="checkbox" checked />
+        Mission is active
+      </label>
+      <button class="primary-button" type="submit">Create mission</button>
+    </form>
+    <div class="form-feedback" id="mission-admin-create-feedback"></div>
+  `;
+
+  listContainer.innerHTML = adminMissionRecords.length
+    ? adminMissionRecords
+        .slice()
+        .sort((left, right) => left.title.localeCompare(right.title))
+        .map(buildAdminMissionCard)
+        .join("")
+    : '<article class="admin-user-card"><div class="admin-user-head"><div><strong>No missions yet</strong><span>Create the first mission brief here.</span></div></div></article>';
+
+  wireAdminMissionForms();
+}
+
+function buildAdminQuestCard(record) {
+  const statusMeta = record.statusMeta || getQuestStatusMeta(record.status);
+  const reviewOptions = [
+    { value: "submitted", label: "Keep submitted" },
+    { value: "needs_revision", label: "Needs revision" },
+    { value: "confirmed", label: "Confirm and grant rewards" }
+  ]
+    .map(
+      (option) =>
+        `<option value="${option.value}" ${option.value === record.status ? "selected" : ""}>${option.label}</option>`
+    )
+    .join("");
+
+  return `
+    <article class="admin-user-card" data-quest-id="${record.id}">
+      <div class="admin-user-head">
+        <div>
+          <strong>${escapeHtml(record.mission?.title || "Unknown quest")}</strong>
+          <span>${escapeHtml(record.user?.displayName || "Unknown member")} · ${escapeHtml(
+            statusMeta.label
+          )}</span>
+        </div>
+        <span class="chip">${escapeHtml(record.mission?.questConfirmer || "Review queue")}</span>
+      </div>
+      <div class="profile-card admin-identity-profile">
+        <div>
+          <p class="profile-label">Quest giver</p>
+          <strong>${escapeHtml(record.mission?.questGiver || "Operations board")}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Progress</p>
+          <strong>${record.progressPercent}%</strong>
+        </div>
+        <div>
+          <p class="profile-label">Submitted</p>
+          <strong>${record.submittedAt ? new Date(record.submittedAt).toLocaleString() : "Not submitted"}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Reward</p>
+          <strong>${record.xpReward} XP · +${record.readinessReward}% readiness</strong>
+        </div>
+      </div>
+      <div class="profile-card admin-identity-profile">
+        <div class="span-two-field">
+          <p class="profile-label">Member notes</p>
+          <strong>${escapeHtml(record.notes || "No member notes yet.")}</strong>
+        </div>
+      </div>
+      <form class="admin-quest-form">
+        <label>
+          Review status
+          <select name="status">${reviewOptions}</select>
+        </label>
+        <label class="span-two-field">
+          Confirmer notes
+          <textarea name="confirmationNotes" rows="3" placeholder="Add guidance or confirmation details.">${escapeHtml(
+            record.confirmationNotes || ""
+          )}</textarea>
+        </label>
+        <button class="primary-button" type="submit">Save quest review</button>
+      </form>
+      <div class="form-feedback" id="quest-admin-feedback-${record.id}"></div>
+    </article>
+  `;
+}
+
+function wireAdminQuestForms() {
+  document.querySelectorAll(".admin-quest-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const card = form.closest("[data-quest-id]");
+      const questId = card?.dataset.questId;
+      if (!questId) {
+        return;
+      }
+
+      setFeedback(`quest-admin-feedback-${questId}`, "Saving quest review...");
+
+      try {
+        const payload = await requestJson(`/api/admin/quests/${questId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: form.elements.status.value,
+            confirmationNotes: form.elements.confirmationNotes.value
+          })
+        });
+
+        adminUsers = adminUsers.map((user) => (user.id === payload.user.id ? payload.user : user));
+        adminQuestRecords = adminQuestRecords.map((record) =>
+          record.id === questId ? { ...record, ...payload.quest, user: payload.user } : record
+        );
+        renderAdminSummary();
+        renderAdminUserList();
+        renderAdminQuestList();
+        setFeedback(`quest-admin-feedback-${questId}`, "Quest review updated.", "success");
+      } catch (error) {
+        setFeedback(`quest-admin-feedback-${questId}`, error.message, "error");
+      }
+    });
+  });
+}
+
+function renderAdminQuestList() {
+  const container = document.getElementById("admin-quest-list");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = adminQuestRecords.length
+    ? adminQuestRecords
+        .slice()
+        .sort((left, right) => {
+          const leftPriority = left.status === "submitted" ? 0 : left.status === "needs_revision" ? 1 : 2;
+          const rightPriority = right.status === "submitted" ? 0 : right.status === "needs_revision" ? 1 : 2;
+          if (leftPriority !== rightPriority) {
+            return leftPriority - rightPriority;
+          }
+
+          const leftTime = left.submittedAt ? new Date(left.submittedAt).getTime() : 0;
+          const rightTime = right.submittedAt ? new Date(right.submittedAt).getTime() : 0;
+          return rightTime - leftTime;
+        })
+        .map(buildAdminQuestCard)
+        .join("")
+    : '<article class="admin-user-card"><div class="admin-user-head"><div><strong>No submitted quests yet</strong><span>Accepted quests will appear here after members request confirmation.</span></div></div></article>';
+
+  wireAdminQuestForms();
+}
+
 async function initAdminPage() {
-  const [usersResponse, identityResponse] = await Promise.all([
+  const [usersResponse, identityResponse, missionResponse, questResponse] = await Promise.all([
     requestJson("/api/admin/users"),
-    requestJson("/api/admin/identity")
+    requestJson("/api/admin/identity"),
+    requestJson("/api/admin/missions"),
+    requestJson("/api/admin/quests")
   ]);
   adminUsers = usersResponse.users;
   adminIdentityRecords = identityResponse.records;
+  adminMissionRecords = missionResponse.missions.map((mission) => normalizeMissionRecord(mission));
+  missionCatalog = adminMissionRecords.slice();
+  adminQuestRecords = questResponse.quests;
   renderAdminSummary();
   renderAdminUserList();
   renderAdminIdentityList();
+  renderAdminMissionList();
+  renderAdminQuestList();
 }
 
 async function initProtectedPage() {
   const session = await requestJson("/api/auth/session");
+  if (!session?.authenticated || !session.user) {
+    goToPage("auth");
+    return;
+  }
+
+  if (ADMIN_ONLY_PAGE_KEYS.has(currentPage) && !session.user.isAdmin) {
+    goToPage("dashboard");
+    return;
+  }
+
   sessionUser = session.user;
   questBoard = buildDefaultQuestBoard();
   const authTransport = await getAuthTransport();
@@ -3480,12 +4549,16 @@ async function initProtectedPage() {
   renderMissions();
   wireMissionFilters();
   renderDashboardQuestPanel();
+  renderDashboardExperience();
   renderModules();
   renderSafetyControls();
   renderReportForm();
   renderLeaderboard();
   renderScoringModel();
   renderRoadmap();
+  renderRoadmapPhases();
+  renderRoadmapFocus();
+  renderRoadmapPageLinks();
   initMapPage();
 
   if (currentPage === "account") {
@@ -3500,6 +4573,9 @@ async function initProtectedPage() {
     if (authTransport === "browser") {
       const list = document.getElementById("admin-user-list");
       const identityList = document.getElementById("admin-identity-list");
+      const missionCreate = document.getElementById("admin-mission-create");
+      const missionList = document.getElementById("admin-mission-list");
+      const questList = document.getElementById("admin-quest-list");
       const summary = document.getElementById("admin-summary");
       if (summary) {
         summary.innerHTML =
@@ -3513,14 +4589,40 @@ async function initProtectedPage() {
         identityList.innerHTML =
           '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Verification review unavailable</strong><span>Identity moderation uses privileged server APIs and is not exposed on static hosting.</span></div></div></article>';
       }
+      if (missionCreate) {
+        missionCreate.innerHTML =
+          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Mission management unavailable</strong><span>Mission CRUD relies on the Node/Supabase server deployment.</span></div></div></article>';
+      }
+      if (missionList) {
+        missionList.innerHTML =
+          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Mission catalog unavailable</strong><span>Server APIs are required to manage persisted mission briefs.</span></div></div></article>';
+      }
+      if (questList) {
+        questList.innerHTML =
+          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Quest confirmation unavailable</strong><span>Quest confirmer actions rely on privileged server APIs and are not exposed on static hosting.</span></div></div></article>';
+      }
+      document.body.classList.add("page-ready");
       return;
     }
 
     await initAdminPage();
   }
+
+  document.body.classList.add("page-ready");
 }
 
 async function init() {
+  if (!PUBLIC_PAGE_KEYS.has(currentPage || "auth")) {
+    const canonicalRoute = LEGACY_PAGE_LOOKUP.get(window.location.pathname);
+    if (canonicalRoute && window.location.protocol !== "file:") {
+      window.history.replaceState(
+        {},
+        "",
+        `${canonicalRoute}${window.location.search}${window.location.hash}`
+      );
+    }
+  }
+
   if (currentPage === "reset-password") {
     await initPasswordResetPage();
     return;
@@ -3535,7 +4637,7 @@ async function init() {
     await initProtectedPage();
   } catch (error) {
     console.error(error);
-    goToPage("index.html");
+    goToPage("auth");
   }
 }
 

@@ -12,14 +12,14 @@
     />
     <link rel="stylesheet" href="./styles.css" />
   </head>
-  <body data-page="dashboard">
+  <body class="protected-body" data-page="dashboard">
     <div class="page-shell">
-      <header class="hero subpage-hero">
+      <header class="hero subpage-hero dashboard-hero">
         <nav class="topbar">
           <div class="brand-lockup">
             <span class="brand-mark">PG</span>
             <div>
-              <p class="eyebrow">Guardian Console</p>
+              <p class="eyebrow">Field Radar Console</p>
               <h1>PredatorGuard</h1>
             </div>
           </div>
@@ -36,16 +36,22 @@
         <nav class="site-nav" id="site-nav"></nav>
         <div class="hero-grid">
           <section class="hero-copy">
-            <p class="kicker">Operations overview</p>
-            <h2>One entry point, with dedicated pages for each core workflow.</h2>
+            <p class="kicker">Live operations deck</p>
+            <h2>Readable command center with radar energy and fast dispatch flow.</h2>
             <p class="hero-text">
-              Use the dashboard as the command center, then move into onboarding, missions,
-              training, reporting, leaderboard, and roadmap pages for focused work.
+              Track active hotspots, guardian readiness, mission windows, and report traffic from
+              one page, then jump into the exact workflow that needs attention.
             </p>
-            <div class="hero-actions">
-              <a class="primary-button" href="./missions.html">Open mission board</a>
-              <a class="secondary-button" href="./reporting.html">Create report</a>
+            <div class="hero-pill-strip">
+              <span class="hero-pill">Pokemon Go radar pacing</span>
+              <span class="hero-pill">Omegle-style immediacy</span>
+              <span class="hero-pill">Readability first</span>
             </div>
+            <div class="hero-actions">
+              <a class="primary-button" href="/missions">Open mission board</a>
+              <a class="secondary-button" href="/reporting">Create report</a>
+            </div>
+            <div class="hero-mini-grid" id="dashboard-hero-mini-grid"></div>
           </section>
           <aside class="hero-panel">
             <div class="panel-header">
@@ -59,17 +65,59 @@
               </div>
             </div>
             <div class="readiness-list" id="readiness-list"></div>
+            <div class="dashboard-focus-card" id="dashboard-hero-focus"></div>
           </aside>
         </div>
       </header>
 
       <main>
         <section class="stat-strip" id="dashboard-stats"></section>
-        <section class="content-grid">
+        <section class="dashboard-grid">
+          <article class="glass-card span-two dashboard-radar-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Mission radar</p>
+                <h3>Hotspot watchlist</h3>
+              </div>
+              <span class="chip">Tap a zone for detail</span>
+            </div>
+            <div class="dashboard-radar-layout">
+              <div class="dashboard-radar-list" id="dashboard-radar-list"></div>
+              <div class="dashboard-radar-detail" id="dashboard-radar-detail"></div>
+            </div>
+          </article>
+          <article class="glass-card dashboard-dispatch-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Dispatch board</p>
+                <h3>Next actions</h3>
+              </div>
+            </div>
+            <div class="dashboard-action-grid" id="dashboard-action-grid"></div>
+          </article>
+          <article class="glass-card span-two dashboard-activity-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Live feed</p>
+                <h3>Guardian activity</h3>
+              </div>
+            </div>
+            <div class="filter-row dashboard-feed-filters" id="dashboard-activity-filters"></div>
+            <div class="dashboard-activity-list" id="dashboard-activity-list"></div>
+          </article>
+          <article class="glass-card dashboard-brief-card">
+            <div class="section-heading">
+              <div>
+                <p class="eyebrow">Recent reports</p>
+                <h3>Verified intake</h3>
+              </div>
+            </div>
+            <div class="dashboard-report-list" id="dashboard-report-list"></div>
+          </article>
           <article class="glass-card span-two">
             <div class="section-heading">
               <div>
-                <p class="eyebrow">Workflow map</p>
+                <p class="eyebrow">Workflow routes</p>
                 <h3>Dedicated surfaces</h3>
               </div>
             </div>
