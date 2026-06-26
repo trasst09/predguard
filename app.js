@@ -213,9 +213,11 @@ let browserSupabaseClient = null;
 let identityVerificationRecord = null;
 let adminIdentityRecords = [];
 let missionCommentsByMissionId = {};
+let browserAdminMissionMode = false;
 
 const MAX_MISSION_ATTACHMENTS = 4;
 const MAX_MISSION_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+const MISSION_TYPES = new Set(["online", "hybrid", "realworld"]);
 
 function getRuntimeConfig() {
   const config = window.PREDGUARD_CONFIG || {};
@@ -907,11 +909,6 @@ async function getAuthTransport() {
 }
 
 async function getPostAuthLandingPage(user) {
-  const transport = await getAuthTransport();
-  if (transport === "browser") {
-    return "dashboard";
-  }
-
   return user?.isAdmin ? "admin" : "dashboard";
 }
 
@@ -1189,6 +1186,272 @@ async function updateBrowserPassword(body) {
   return { ok: true };
 }
 
+function sanitizeBrowserMissionText(value, maxLength = 200, fallback = "") {
+  return String(value ?? fallback)
+    .trim()
+    .slice(0, maxLength);
+}
+
+function sanitizeBrowserMissionList(value, maxItems = 12, itemMaxLength = 120) {
+  const rawItems = Array.isArray(value)
+    ? value
+    : String(value || "")
+        .split(/\r?\n|,/u)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+  return rawItems
+    .map((item) => sanitizeBrowserMissionText(item, itemMaxLength))
+    .filter(Boolean)
+    .slice(0, maxItems);
+}
+
+function slugifyBrowserMissionId(value) {
+  const base = sanitizeBrowserMissionText(value, 80)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "");
+
+  return base || `mission-${Date.now().toString(36)}`;
+}
+
+function mapBrowserMissionRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    type: record.type,
+    risk: record.risk || "",
+    title: record.title,
+    questGiver: record.quest_giver || "",
+    questConfirmer: record.quest_confirmer || "",
+    description: record.description || "",
+    location: record.location || "",
+    schedule: record.schedule || "",
+    roles: Array.isArray(record.roles) ? record.roles : [],
+    protocol: record.protocol || "",
+    minimumRole: record.minimum_role || ROLE_OPTIONS[0],
+    minReadiness: record.min_readiness ?? 0,
+    xpReward: record.xp_reward ?? 0,
+    readinessReward: record.readiness_reward ?? 0,
+    rewardLabel: record.reward_label || "",
+    steps: Array.isArray(record.steps) ? record.steps : [],
+    isActive: record.is_active !== false,
+    createdBy: record.created_by || null,
+    updatedBy: record.updated_by || null,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function buildBrowserMissionMutation(body, { partial = false, existingMission = null } = {}) {
+  const patch = {};
+
+  if (!partial || body.id !== undefined) {
+    const nextId = slugifyBrowserMissionId(body.id || body.title || existingMission?.id);
+    if (!nextId) {
+      throw new Error("Mission id is required.");
+    }
+    patch.id = nextId;
+  }
+
+  if (!partial || body.type !== undefined) {
+    const nextType = sanitizeBrowserMissionText(body.type, 40);
+    if (!MISSION_TYPES.has(nextType)) {
+      throw new Error("Mission type must be online, hybrid, or realworld.");
+    }
+    patch.type = nextType;
+  }
+
+  if (!partial || body.title !== undefined) {
+    const title = sanitizeBrowserMissionText(body.title, 120);
+    if (!title) {
+      throw new Error("Mission title is required.");
+    }
+    patch.title = title;
+  }
+
+  if (!partial || body.minimumRole !== undefined) {
+    const minimumRole = sanitizeBrowserMissionText(body.minimumRole, 80);
+    if (!ROLE_OPTIONS.includes(minimumRole)) {
+      throw new Error("Mission minimum role is invalid.");
+    }
+    patch.minimum_role = minimumRole;
+  }
+
+  if (!partial || body.description !== undefined) {
+    patch.description = sanitizeBrowserMissionText(body.description, 1200);
+  }
+  if (!partial || body.risk !== undefined) {
+    patch.risk = sanitizeBrowserMissionText(body.risk, 120);
+  }
+  if (!partial || body.questGiver !== undefined) {
+    patch.quest_giver = sanitizeBrowserMissionText(body.questGiver, 120);
+  }
+  if (!partial || body.questConfirmer !== undefined) {
+    patch.quest_confirmer = sanitizeBrowserMissionText(body.questConfirmer, 120);
+  }
+  if (!partial || body.location !== undefined) {
+    patch.location = sanitizeBrowserMissionText(body.location, 160);
+  }
+  if (!partial || body.schedule !== undefined) {
+    patch.schedule = sanitizeBrowserMissionText(body.schedule, 160);
+  }
+  if (!partial || body.protocol !== undefined) {
+    patch.protocol = sanitizeBrowserMissionText(body.protocol, 240);
+  }
+  if (!partial || body.rewardLabel !== undefined) {
+    patch.reward_label = sanitizeBrowserMissionText(body.rewardLabel, 160);
+  }
+  if (!partial || body.roles !== undefined) {
+    patch.roles = sanitizeBrowserMissionList(body.roles, 12, 80);
+  }
+  if (!partial || body.steps !== undefined) {
+    patch.steps = sanitizeBrowserMissionList(body.steps, 12, 200);
+  }
+  if (!partial || body.isActive !== undefined) {
+    patch.is_active = Boolean(body.isActive);
+  }
+
+  if (!partial || body.minReadiness !== undefined) {
+    const minReadiness = Number(body.minReadiness);
+    if (!Number.isFinite(minReadiness) || minReadiness < 0 || minReadiness > 100) {
+      throw new Error("Mission readiness must be between 0 and 100.");
+    }
+    patch.min_readiness = Math.round(minReadiness);
+  }
+
+  if (!partial || body.xpReward !== undefined) {
+    const xpReward = Number(body.xpReward);
+    if (!Number.isFinite(xpReward) || xpReward < 0) {
+      throw new Error("Mission XP reward must be a non-negative number.");
+    }
+    patch.xp_reward = Math.round(xpReward);
+  }
+
+  if (!partial || body.readinessReward !== undefined) {
+    const readinessReward = Number(body.readinessReward);
+    if (!Number.isFinite(readinessReward) || readinessReward < 0 || readinessReward > 100) {
+      throw new Error("Mission readiness reward must be between 0 and 100.");
+    }
+    patch.readiness_reward = Math.round(readinessReward);
+  }
+
+  return patch;
+}
+
+async function listBrowserMissions(client, { includeInactive = true } = {}) {
+  let query = client.from("missions").select("*").order("title", { ascending: true });
+  if (!includeInactive) {
+    query = query.eq("is_active", true);
+  }
+
+  const { data, error } = await query;
+  if (error) {
+    throw new Error(error.message || "Unable to load missions.");
+  }
+
+  return data.map((record) => mapBrowserMissionRecord(record)).filter(Boolean);
+}
+
+async function ensureBrowserAdminSession() {
+  const sessionPayload = await getBrowserSessionPayload();
+  if (!sessionPayload.authenticated) {
+    throw new Error("You must be signed in.");
+  }
+  if (!sessionPayload.user?.isAdmin) {
+    throw new Error("Administrator access required.");
+  }
+
+  return sessionPayload;
+}
+
+async function listBrowserAdminMissions() {
+  const client = await getBrowserSupabaseClient();
+  await ensureBrowserAdminSession();
+  return {
+    missions: await listBrowserMissions(client, { includeInactive: true })
+  };
+}
+
+async function createBrowserAdminMission(body) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await ensureBrowserAdminSession();
+  const patch = buildBrowserMissionMutation(body, { partial: false });
+
+  const { data: existing, error: existingError } = await client
+    .from("missions")
+    .select("id")
+    .eq("id", patch.id)
+    .maybeSingle();
+  if (existingError) {
+    throw new Error(existingError.message || "Unable to validate the mission id.");
+  }
+  if (existing) {
+    throw new Error("A mission with that id already exists.");
+  }
+
+  const { data, error } = await client
+    .from("missions")
+    .insert({
+      ...patch,
+      created_by: sessionPayload.user.id,
+      updated_by: sessionPayload.user.id
+    })
+    .select()
+    .single();
+  if (error) {
+    throw new Error(error.message || "Unable to create the mission.");
+  }
+
+  return { mission: mapBrowserMissionRecord(data) };
+}
+
+async function updateBrowserAdminMission(body, missionId) {
+  const client = await getBrowserSupabaseClient();
+  const sessionPayload = await ensureBrowserAdminSession();
+  const { data: existing, error: existingError } = await client
+    .from("missions")
+    .select("*")
+    .eq("id", missionId)
+    .maybeSingle();
+  if (existingError) {
+    throw new Error(existingError.message || "Unable to load the mission.");
+  }
+  if (!existing) {
+    throw new Error("Mission not found.");
+  }
+
+  if (body.id !== undefined && slugifyBrowserMissionId(body.id) !== missionId) {
+    throw new Error("Mission ids cannot be changed after creation.");
+  }
+
+  const patch = buildBrowserMissionMutation(body, {
+    partial: true,
+    existingMission: mapBrowserMissionRecord(existing)
+  });
+  if (!Object.keys(patch).length) {
+    throw new Error("No valid mission updates were provided.");
+  }
+
+  const { data, error } = await client
+    .from("missions")
+    .update({
+      ...patch,
+      updated_by: sessionPayload.user.id
+    })
+    .eq("id", missionId)
+    .select()
+    .single();
+  if (error) {
+    throw new Error(error.message || "Unable to update the mission.");
+  }
+
+  return { mission: mapBrowserMissionRecord(data) };
+}
+
 async function getBrowserIdentityVerification() {
   const client = await getBrowserSupabaseClient();
   const sessionPayload = await getBrowserSessionPayload();
@@ -1415,6 +1678,7 @@ async function listBrowserUserQuests(client, userId) {
 
 async function buildBrowserQuestBoard(user) {
   const client = await getBrowserSupabaseClient();
+  missionCatalog = await listBrowserMissions(client, { includeInactive: true });
   const assignments = await listBrowserUserQuests(client, user.id);
   return normalizeQuestBoardPayload({
     assignments,
@@ -1614,6 +1878,18 @@ async function requestBrowserJson(url, options = {}) {
 
   if (url.startsWith("/api/quests/") && options.method === "PATCH") {
     return updateBrowserQuest(body, url.split("/").pop());
+  }
+
+  if (url === "/api/admin/missions" && options.method === "GET") {
+    return listBrowserAdminMissions();
+  }
+
+  if (url === "/api/admin/missions" && options.method === "POST") {
+    return createBrowserAdminMission(body);
+  }
+
+  if (url.startsWith("/api/admin/missions/") && options.method === "PATCH") {
+    return updateBrowserAdminMission(body, url.split("/").pop());
   }
 
   if (url.startsWith("/api/admin/")) {
@@ -4345,6 +4621,28 @@ function renderAdminSummary() {
     return;
   }
 
+  if (browserAdminMissionMode) {
+    const activeMissionCount = adminMissionRecords.filter((mission) => mission.isActive !== false).length;
+    summary.innerHTML = `
+      <article class="stat-card">
+        <p>Admin console</p>
+        <strong>Browser mission mode</strong>
+        <span>Static hosting can create and edit mission briefs through Supabase.</span>
+      </article>
+      <article class="stat-card">
+        <p>Persisted briefs</p>
+        <strong>${adminMissionRecords.length}</strong>
+        <span>Mission records available to authenticated users.</span>
+      </article>
+      <article class="stat-card">
+        <p>Active missions</p>
+        <strong>${activeMissionCount}</strong>
+        <span>Currently open mission briefs on the board.</span>
+      </article>
+    `;
+    return;
+  }
+
   const verifiedCount = adminUsers.filter((user) =>
     ["Phone + ID complete", "Officer path approved"].includes(user.verificationStatus)
   ).length;
@@ -4678,7 +4976,9 @@ function buildAdminMissionCard(mission) {
         </label>
         <div class="quest-actions">
           <button class="primary-button" type="submit">Save mission</button>
-          <button class="secondary-button" data-action="delete" type="button">Delete mission</button>
+          <button class="secondary-button" data-action="delete" type="button"${
+            browserAdminMissionMode ? ' disabled title="Delete missions from static hosting is unavailable."' : ""
+          }>Delete mission</button>
         </div>
       </form>
       <div class="form-feedback" id="mission-admin-feedback-${mission.id}"></div>
@@ -5092,15 +5392,15 @@ async function initProtectedPage() {
 
   if (currentPage === "admin") {
     if (authTransport === "browser") {
+      browserAdminMissionMode = true;
       const list = document.getElementById("admin-user-list");
       const identityList = document.getElementById("admin-identity-list");
-      const missionCreate = document.getElementById("admin-mission-create");
-      const missionList = document.getElementById("admin-mission-list");
       const questList = document.getElementById("admin-quest-list");
       const summary = document.getElementById("admin-summary");
       if (summary) {
         summary.innerHTML =
-          '<article class="stat-card"><p>Admin console</p><strong>Server-backed only</strong><span>Use the Node deployment for member administration.</span></article>';
+          `<article class="stat-card"><p>Admin console</p><strong>Browser mission mode</strong><span>Static hosting can create and edit mission briefs through Supabase.</span></article>
+          <article class="stat-card"><p>Persisted briefs</p><strong>${adminMissionRecords.length}</strong><span>Mission records available to authenticated users.</span></article>`;
       }
       if (list) {
         list.innerHTML =
@@ -5110,22 +5410,41 @@ async function initProtectedPage() {
         identityList.innerHTML =
           '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Verification review unavailable</strong><span>Identity moderation uses privileged server APIs and is not exposed on static hosting.</span></div></div></article>';
       }
-      if (missionCreate) {
-        missionCreate.innerHTML =
-          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Mission management unavailable</strong><span>Mission CRUD relies on the Node/Supabase server deployment.</span></div></div></article>';
-      }
-      if (missionList) {
-        missionList.innerHTML =
-          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Mission catalog unavailable</strong><span>Server APIs are required to manage persisted mission briefs.</span></div></div></article>';
-      }
       if (questList) {
         questList.innerHTML =
           '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Quest confirmation unavailable</strong><span>Quest confirmer actions rely on privileged server APIs and are not exposed on static hosting.</span></div></div></article>';
+      }
+      try {
+        const payload = await requestJson("/api/admin/missions", { method: "GET" });
+        adminMissionRecords = Array.isArray(payload.missions)
+          ? payload.missions.map((mission) => normalizeMissionRecord(mission)).filter(Boolean)
+          : [];
+        missionCatalog = adminMissionRecords.slice();
+        if (summary) {
+          summary.innerHTML =
+            `<article class="stat-card"><p>Admin console</p><strong>Browser mission mode</strong><span>Static hosting can create and edit mission briefs through Supabase.</span></article>
+            <article class="stat-card"><p>Persisted briefs</p><strong>${adminMissionRecords.length}</strong><span>Mission records available to authenticated users.</span></article>`;
+        }
+        renderAdminMissionList();
+      } catch (error) {
+        const missionCreate = document.getElementById("admin-mission-create");
+        const missionList = document.getElementById("admin-mission-list");
+        if (missionCreate) {
+          missionCreate.innerHTML =
+            `<article class="admin-user-card"><div class="admin-user-head"><div><strong>Mission management unavailable</strong><span>${escapeHtml(
+              error.message
+            )}</span></div></div></article>`;
+        }
+        if (missionList) {
+          missionList.innerHTML =
+            '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Mission catalog unavailable</strong><span>Mission records could not be loaded from Supabase.</span></div></div></article>';
+        }
       }
       document.body.classList.add("page-ready");
       return;
     }
 
+    browserAdminMissionMode = false;
     await initAdminPage();
   }
 
