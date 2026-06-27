@@ -1,8 +1,26 @@
 {
   "version": 2,
-  "functions": {
-    "server.js": {
-      "includeFiles": "{*.html,styles.css,browser-app.js,config.js,data.js,data/**,utils/**}"
+  "builds": [
+    {
+      "src": "server.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "*.html",
+          "styles.css",
+          "browser-app.js",
+          "config.js",
+          "data.js",
+          "data/**",
+          "utils/**"
+        ]
+      }
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "server.js"
+    }
+  ]
 }

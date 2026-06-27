@@ -104,6 +104,20 @@ create table if not exists public.identity_verifications (
   updated_at timestamptz not null default timezone('utc', now())
 );
 
+create table if not exists public.app_sessions (
+  token_hash text primary key,
+  user_id uuid not null references public.profiles(id) on delete cascade,
+  expires_at timestamptz not null,
+  last_seen_at timestamptz not null default timezone('utc', now()),
+  created_at timestamptz not null default timezone('utc', now())
+);
+
+create index if not exists app_sessions_user_id_idx
+on public.app_sessions(user_id);
+
+create index if not exists app_sessions_expires_at_idx
+on public.app_sessions(expires_at);
+
 alter table public.profiles add column if not exists legal_version text not null default '2026-06-22';
 alter table public.profiles add column if not exists terms_accepted_at timestamptz;
 alter table public.profiles add column if not exists privacy_accepted_at timestamptz;
@@ -182,6 +196,7 @@ alter table public.missions enable row level security;
 alter table public.user_quests enable row level security;
 alter table public.identity_verifications enable row level security;
 alter table public.mission_comments enable row level security;
+alter table public.app_sessions enable row level security;
 
 drop policy if exists "Profiles are readable by service role only" on public.profiles;
 create policy "Profiles are readable by service role only"
@@ -364,6 +379,21 @@ using (true);
 drop policy if exists "Identity verifications are writable by service role only" on public.identity_verifications;
 create policy "Identity verifications are writable by service role only"
 on public.identity_verifications
+for all
+to service_role
+using (true)
+with check (true);
+
+drop policy if exists "App sessions are readable by service role only" on public.app_sessions;
+create policy "App sessions are readable by service role only"
+on public.app_sessions
+for select
+to service_role
+using (true);
+
+drop policy if exists "App sessions are writable by service role only" on public.app_sessions;
+create policy "App sessions are writable by service role only"
+on public.app_sessions
 for all
 to service_role
 using (true)

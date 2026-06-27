@@ -51,6 +51,7 @@ const HOST = process.env.HOST || "127.0.0.1";
 const PORT = Number(process.env.PORT || 3000);
 const SESSION_COOKIE = "pg_session";
 const SESSION_TTL_MS = 1000 * 60 * 60 * 12;
+const SESSION_COOKIE_SECURE = IS_VERCEL || process.env.NODE_ENV === "production";
 const LEGAL_VERSION = "2026-06-22";
 const LOCATION_PREFERENCES = new Set(["unset", "device", "manual", "declined"]);
 const MISSION_TYPES = new Set(["online", "hybrid", "realworld"]);
@@ -245,8 +246,6 @@ const SEEDED_MISSION_CATALOG = [
     ]
   }
 ];
-
-const sessions = new Map();
 
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
@@ -715,27 +714,90 @@ function parseCookies(header) {
     }, {});
 }
 
-function createSession(response, userId) {
+function hashSessionToken(token) {
+  return crypto.createHash("sha256").update(token).digest("hex");
+}
+
+function serializeSessionCookie(token, maxAgeSeconds) {
+  const secureAttribute = SESSION_COOKIE_SECURE ? "; Secure" : "";
+  return `${SESSION_COOKIE}=${encodeURIComponent(
+    token
+  )}; HttpOnly; Path=/; Max-Age=${maxAgeSeconds}; SameSite=Strict${secureAttribute}`;
+}
+
+async function persistSession(token, userId, expiresAt) {
+  const { error } = await supabaseAdmin.from("app_sessions").upsert({
+    token_hash: hashSessionToken(token),
+    user_id: userId,
+    expires_at: new Date(expiresAt).toISOString(),
+    last_seen_at: new Date().toISOString()
+  });
+  throwIfSupabaseError(error, "Unable to create a durable session.");
+}
+
+async function deleteSessionToken(token) {
+  if (!token) {
+    return;
+  }
+
+  const { error } = await supabaseAdmin
+    .from("app_sessions")
+    .delete()
+    .eq("token_hash", hashSessionToken(token));
+
+  if (error) {
+    console.warn("Unable to delete stored session.", error);
+  }
+}
+
+async function readStoredSession(token) {
+  const { data, error } = await supabaseAdmin
+    .from("app_sessions")
+    .select("user_id, expires_at")
+    .eq("token_hash", hashSessionToken(token))
+    .maybeSingle();
+  throwIfSupabaseError(error, "Unable to read the stored session.");
+
+  if (!data) {
+    return null;
+  }
+
+  return {
+    userId: data.user_id,
+    expiresAt: new Date(data.expires_at).getTime()
+  };
+}
+
+async function touchStoredSession(token) {
+  const { error } = await supabaseAdmin
+    .from("app_sessions")
+    .update({ last_seen_at: new Date().toISOString() })
+    .eq("token_hash", hashSessionToken(token));
+
+  if (error) {
+    console.warn("Unable to update session last_seen_at.", error);
+  }
+}
+
+async function createSession(response, userId) {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = Date.now() + SESSION_TTL_MS;
-  sessions.set(token, { userId, expiresAt });
+  await persistSession(token, userId, expiresAt);
   response.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=${token}; HttpOnly; Path=/; Max-Age=${Math.floor(
-      SESSION_TTL_MS / 1000
-    )}; SameSite=Strict`
+    serializeSessionCookie(token, Math.floor(SESSION_TTL_MS / 1000))
   );
 }
 
-function clearSession(response, request) {
+async function clearSession(response, request) {
   const cookies = parseCookies(request.headers.cookie);
   if (cookies[SESSION_COOKIE]) {
-    sessions.delete(cookies[SESSION_COOKIE]);
+    await deleteSessionToken(cookies[SESSION_COOKIE]);
   }
 
   response.setHeader(
     "Set-Cookie",
-    `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0; SameSite=Strict`
+    serializeSessionCookie("", 0)
   );
 }
 
@@ -1991,23 +2053,24 @@ async function getSessionUser(request) {
     return null;
   }
 
-  const session = sessions.get(token);
+  const session = await readStoredSession(token);
   if (!session) {
     return null;
   }
 
   if (session.expiresAt <= Date.now()) {
-    sessions.delete(token);
+    await deleteSessionToken(token);
     return null;
   }
 
   const user = await getUserById(session.userId);
 
   if (!user) {
-    sessions.delete(token);
+    await deleteSessionToken(token);
     return null;
   }
 
+  await touchStoredSession(token);
   return user;
 }
 
@@ -2062,7 +2125,7 @@ async function handleAuthRegister(request, response) {
   }
 
   const user = await registerUser({ displayName, email, region, password, legalAcceptance });
-  createSession(response, user.id);
+  await createSession(response, user.id);
   sendJson(response, 201, { user });
 }
 
@@ -2077,7 +2140,7 @@ async function handleAuthLogin(request, response) {
   }
 
   const user = await authenticateUser(email, password);
-  createSession(response, user.id);
+  await createSession(response, user.id);
   sendJson(response, 200, { user });
 }
 
@@ -2318,7 +2381,7 @@ async function handleApi(request, response, urlPath) {
   }
 
   if (urlPath === "/api/auth/logout" && request.method === "POST") {
-    clearSession(response, request);
+    await clearSession(response, request);
     sendJson(response, 200, { ok: true });
     return;
   }
