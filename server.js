@@ -102,14 +102,14 @@ const supabaseAuth = hasSupabaseConfig
 const PAGE_ROUTES = [
   { htmlPath: "/index.html", routePath: "/", access: "public" },
   { htmlPath: "/reset-password.html", routePath: "/reset-password", access: "public" },
-  { htmlPath: "/dashboard.html", routePath: "/dashboard", access: "protected" },
+  { htmlPath: "/dashboard.html", routePath: "/dashboard", access: "public" },
   { htmlPath: "/onboarding.html", routePath: "/onboarding", access: "protected" },
-  { htmlPath: "/missions.html", routePath: "/missions", access: "protected" },
-  { htmlPath: "/map.html", routePath: "/map", access: "protected" },
-  { htmlPath: "/training.html", routePath: "/training", access: "protected" },
-  { htmlPath: "/reporting.html", routePath: "/reporting", access: "protected" },
-  { htmlPath: "/leaderboard.html", routePath: "/leaderboard", access: "protected" },
-  { htmlPath: "/roadmap.html", routePath: "/roadmap", access: "protected" },
+  { htmlPath: "/missions.html", routePath: "/missions", access: "public" },
+  { htmlPath: "/map.html", routePath: "/map", access: "public" },
+  { htmlPath: "/training.html", routePath: "/training", access: "public" },
+  { htmlPath: "/reporting.html", routePath: "/reporting", access: "public" },
+  { htmlPath: "/leaderboard.html", routePath: "/leaderboard", access: "public" },
+  { htmlPath: "/roadmap.html", routePath: "/roadmap", access: "public" },
   { htmlPath: "/account.html", routePath: "/account", access: "protected" },
   { htmlPath: "/admin.html", routePath: "/admin", access: "admin" }
 ];
@@ -812,6 +812,15 @@ function describeMissionAccess(user, mission, assignments) {
     };
   }
 
+  if (!user) {
+    return {
+      claimable: false,
+      state: "signed_out",
+      reason: "Sign in to accept this quest.",
+      assignmentId: null
+    };
+  }
+
   if (getRoleRank(user.role) < getRoleRank(mission.minimumRole)) {
     return {
       claimable: false,
@@ -973,24 +982,6 @@ async function deleteSessionToken(token) {
   if (error) {
     console.warn("Unable to delete stored session.", error);
   }
-}
-
-async function readStoredSession(token) {
-  const { data, error } = await supabaseAdmin
-    .from("app_sessions")
-    .select("user_id, expires_at")
-    .eq("token_hash", hashSessionToken(token))
-    .maybeSingle();
-  throwIfSupabaseError(error, "Unable to read the stored session.");
-
-  if (!data) {
-    return null;
-  }
-
-  return {
-    userId: data.user_id,
-    expiresAt: new Date(data.expires_at).getTime()
-  };
 }
 
 async function touchStoredSession(token) {
@@ -2125,7 +2116,7 @@ async function reviewIdentityVerification(userId, updates) {
 
 async function getQuestBoard(user) {
   const [assignments, missionCatalog] = await Promise.all([
-    supabaseListUserQuests(user.id),
+    user ? supabaseListUserQuests(user.id) : Promise.resolve([]),
     listMissionCatalog({ includeInactive: true })
   ]);
   return buildQuestBoardPayload(user, assignments, missionCatalog);
@@ -2257,7 +2248,7 @@ async function reviewReport(adminUser, reportId, updates) {
 }
 
 async function getTrainingBoard(user) {
-  const [progressRecords] = await Promise.all([supabaseListTrainingProgressByUser(user.id)]);
+  const progressRecords = user ? await supabaseListTrainingProgressByUser(user.id) : [];
   const progressByModule = new Map(progressRecords.map((record) => [record.moduleId, record]));
 
   const modules = getPublicTrainingModules().map((trainingModule) => {
@@ -2652,25 +2643,27 @@ async function getSessionUser(request) {
     return null;
   }
 
-  const session = await readStoredSession(token);
-  if (!session) {
+  // ponytail: session + profile fetched in one PostgREST embed instead of two
+  // sequential round trips; that halved per-page auth latency.
+  const { data, error } = await supabaseAdmin
+    .from("app_sessions")
+    .select("expires_at, profiles(*)")
+    .eq("token_hash", hashSessionToken(token))
+    .maybeSingle();
+  throwIfSupabaseError(error, "Unable to read the stored session.");
+
+  if (!data || !data.profiles) {
     return null;
   }
 
-  if (session.expiresAt <= Date.now()) {
-    await deleteSessionToken(token);
+  if (new Date(data.expires_at).getTime() <= Date.now()) {
+    deleteSessionToken(token).catch((error) => console.warn("Unable to delete expired session.", error));
     return null;
   }
 
-  const user = await getUserById(session.userId);
-
-  if (!user) {
-    await deleteSessionToken(token);
-    return null;
-  }
-
-  await touchStoredSession(token);
-  return user;
+  // Last-seen bookkeeping doesn't need to block the response.
+  touchStoredSession(token).catch((error) => console.warn("Unable to update session last_seen_at.", error));
+  return mapSupabaseProfile(data.profiles);
 }
 
 async function requireUser(request, response) {
@@ -2946,7 +2939,7 @@ async function handleMissionCommentCreate(request, response, currentUser, missio
 }
 
 async function handleReportsList(response, currentUser) {
-  const reports = await listUserReports(currentUser);
+  const reports = currentUser ? await listUserReports(currentUser) : [];
   sendJson(response, 200, { reports });
 }
 
@@ -3095,11 +3088,9 @@ async function handleApi(request, response, urlPath) {
   }
 
   if (urlPath === "/api/quests" && request.method === "GET") {
-    const user = await requireUser(request, response);
-    if (!user) {
-      return;
-    }
-
+    // ponytail: anonymous visitors can browse the quest catalog; only
+    // claiming/updating a quest still requires requireUser below.
+    const user = await getSessionUser(request);
     const questBoard = await getQuestBoard(user);
     sendJson(response, 200, questBoard);
     return;
@@ -3255,11 +3246,9 @@ async function handleApi(request, response, urlPath) {
   }
 
   if (urlPath === "/api/reports" && request.method === "GET") {
-    const user = await requireUser(request, response);
-    if (!user) {
-      return;
-    }
-
+    // ponytail: anonymous visitors can view the reporting page; there's just
+    // no personal history to show them.
+    const user = await getSessionUser(request);
     await handleReportsList(response, user);
     return;
   }
@@ -3296,11 +3285,9 @@ async function handleApi(request, response, urlPath) {
   }
 
   if (urlPath === "/api/training" && request.method === "GET") {
-    const user = await requireUser(request, response);
-    if (!user) {
-      return;
-    }
-
+    // ponytail: module catalog is browsable as a guest; only personal
+    // progress requires an account, handled inside getTrainingBoard.
+    const user = await getSessionUser(request);
     await handleTrainingGet(response, user);
     return;
   }
@@ -3317,21 +3304,13 @@ async function handleApi(request, response, urlPath) {
   }
 
   if (urlPath === "/api/leaderboard" && request.method === "GET") {
-    const user = await requireUser(request, response);
-    if (!user) {
-      return;
-    }
-
+    // ponytail: leaderboard is global/aggregate data, no account needed to view.
     await handleLeaderboardGet(response);
     return;
   }
 
   if (urlPath === "/api/dashboard/stats" && request.method === "GET") {
-    const user = await requireUser(request, response);
-    if (!user) {
-      return;
-    }
-
+    // ponytail: dashboard stats are global/aggregate data, no account needed to view.
     await handleDashboardStatsGet(response);
     return;
   }

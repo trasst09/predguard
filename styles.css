@@ -2442,3 +2442,66 @@ textarea:focus-visible,
     align-self: stretch;
   }
 }
+
+/* Reddit reskin cleanup: a few components missed by the earlier override
+   pass still carried the old dark-glass palette. */
+.brand-mark {
+  background: #ff4500;
+  color: #fff;
+}
+
+.quiz-option {
+  background: #f8f9fa;
+}
+
+.module-status-row .chip {
+  color: #1c1c1c;
+  background: #f6f7f8;
+  border-color: var(--line);
+}
+
+.dashboard-detail-stage {
+  background: var(--panel);
+}
+
+.roadmap-status-complete {
+  background: #e2f7e8;
+  color: #1a8a3d;
+}
+
+.leader-rank {
+  background: #fff1ea;
+  color: var(--accent);
+}
+
+.map-region-node,
+.map-marker {
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 3px rgba(26, 26, 27, 0.12);
+  backdrop-filter: none;
+  color: #1c1c1c;
+}
+
+.map-region-node span,
+.map-marker span {
+  color: var(--muted);
+}
+
+.user-marker {
+  border-color: rgba(255, 69, 0, 0.4);
+}
+
+.quest-marker {
+  border-color: rgba(255, 176, 0, 0.5);
+}
+
+.map-location-marker {
+  border-color: rgba(0, 121, 211, 0.4);
+}
+
+.map-region-node.active,
+.map-marker.active {
+  border-color: #ff4500;
+  box-shadow: 0 0 0 1px rgba(255, 69, 0, 0.25), 0 8px 20px rgba(26, 26, 27, 0.12);
+}

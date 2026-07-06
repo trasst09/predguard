@@ -15,6 +15,10 @@ const PAGE_CONFIG = {
 };
 const PUBLIC_PAGE_KEYS = new Set(["auth", "reset-password"]);
 const ADMIN_ONLY_PAGE_KEYS = new Set(["admin"]);
+// ponytail: pages that still require sign-in to view at all; everything else
+// (dashboard/missions/map/training/reporting/leaderboard/roadmap) is browsable
+// as a guest, with quest actions and mission chat hidden client-side.
+const SIGN_IN_REQUIRED_PAGE_KEYS = new Set(["account", "onboarding", "admin"]);
 const LEGACY_PAGE_LOOKUP = new Map(
   Object.values(PAGE_CONFIG).map((config) => [config.legacyPath, config.routePath])
 );
@@ -2043,7 +2047,15 @@ function getRedditPageMeta() {
 
 function renderRedditRailProfile() {
   const container = document.getElementById("reddit-rail-profile");
-  if (!container || !sessionUser) {
+  if (!container) {
+    return;
+  }
+
+  if (!sessionUser) {
+    container.innerHTML = `
+      <p class="reddit-rail-copy">Sign in to accept quests, join mission chat, and track your progress.</p>
+      <a class="primary-button compact-button" href="${escapeHtml(getPageUrl("auth"))}">Sign in</a>
+    `;
     return;
   }
 
@@ -2183,11 +2195,17 @@ function createNav() {
 
   const links = [
     ...pageLinksData,
-    {
-      title: "Account",
-      href: getPageUrl("account"),
-      description: "Manage your profile details, password, and session settings."
-    }
+    sessionUser
+      ? {
+          title: "Account",
+          href: getPageUrl("account"),
+          description: "Manage your profile details, password, and session settings."
+        }
+      : {
+          title: "Sign in",
+          href: getPageUrl("auth"),
+          description: "Sign in to accept quests, join the mission chat, and track progress."
+        }
   ];
 
   if (sessionUser?.isAdmin) {
@@ -2209,12 +2227,18 @@ function createNav() {
 
 function updateSessionChrome() {
   const badge = document.querySelector("[data-session-badge]");
-  if (badge && sessionUser) {
-    badge.textContent = `${sessionUser.displayName} - ${sessionUser.role}`;
+  if (badge) {
+    badge.textContent = sessionUser ? `${sessionUser.displayName} - ${sessionUser.role}` : "Browsing as guest";
   }
 
   document.querySelectorAll("[data-signout]").forEach((button) => {
-    button.addEventListener("click", handleSignOut);
+    if (sessionUser) {
+      button.addEventListener("click", handleSignOut);
+      return;
+    }
+
+    button.textContent = "Sign in";
+    button.addEventListener("click", () => goToPage("auth"));
   });
 }
 
@@ -3174,8 +3198,8 @@ function renderMissions(filter = "all") {
           <div class="quest-actions">
             <button class="secondary-button mission-button" type="button">View brief</button>
             <button class="primary-button mission-claim-button" type="button" ${
-              access.claimable ? "" : "disabled"
-            }>${access.claimable ? "Accept quest" : access.state === "confirmed" ? "Confirmed" : access.state === "submitted" ? "Pending review" : access.state === "needs_revision" ? "Needs revision" : access.state === "accepted" ? "Accepted" : access.state === "inactive" ? "Inactive" : "Locked"}</button>
+              access.claimable || access.state === "signed_out" ? "" : "disabled"
+            }>${access.claimable ? "Accept quest" : access.state === "signed_out" ? "Sign in to accept" : access.state === "confirmed" ? "Confirmed" : access.state === "submitted" ? "Pending review" : access.state === "needs_revision" ? "Needs revision" : access.state === "accepted" ? "Accepted" : access.state === "inactive" ? "Inactive" : "Locked"}</button>
           </div>
         </div>
         <div class="quest-status-note">${escapeHtml(access.reason)}</div>
@@ -3194,6 +3218,10 @@ function renderMissions(filter = "all") {
 
       const claimButton = node.querySelector(".mission-claim-button");
       claimButton.addEventListener("click", async () => {
+        if (access.state === "signed_out") {
+          goToPage("auth");
+          return;
+        }
         await handleQuestClaim(mission.id);
       });
 
@@ -3382,6 +3410,12 @@ function wireTrainingQuizForm(form, trainingModule) {
 
   form.addEventListener("submit", async (event) => {
     event.preventDefault();
+
+    if (!sessionUser) {
+      goToPage("auth");
+      return;
+    }
+
     const feedback = form.querySelector(".form-feedback");
     const questionCount = (trainingModule.quiz || []).length;
     const quizAnswers = [];
@@ -3464,6 +3498,11 @@ async function renderReportHistory() {
     return;
   }
 
+  if (!sessionUser) {
+    historyList.innerHTML = "<p>Sign in to submit a report and track its review status here.</p>";
+    return;
+  }
+
   historyList.innerHTML = "<p>Loading your report history…</p>";
 
   try {
@@ -3502,6 +3541,12 @@ function renderReportForm() {
 
   reportForm.addEventListener("submit", async (event) => {
     event.preventDefault();
+
+    if (!sessionUser) {
+      goToPage("auth");
+      return;
+    }
+
     const formData = new FormData(reportForm);
     const platform = String(formData.get("platform") || "");
     const evidence = String(formData.get("evidence") || "");
@@ -5752,17 +5797,19 @@ async function initAdminPage() {
 
 async function initProtectedPage() {
   const session = await requestJson("/api/auth/session");
-  if (!session?.authenticated || !session.user) {
+  const authenticated = Boolean(session?.authenticated && session.user);
+
+  if (!authenticated && SIGN_IN_REQUIRED_PAGE_KEYS.has(currentPage)) {
     goToPage("auth");
     return;
   }
 
-  if (ADMIN_ONLY_PAGE_KEYS.has(currentPage) && !session.user.isAdmin) {
+  if (authenticated && ADMIN_ONLY_PAGE_KEYS.has(currentPage) && !session.user.isAdmin) {
     goToPage("dashboard");
     return;
   }
 
-  sessionUser = session.user;
+  sessionUser = authenticated ? session.user : null;
   questBoard = buildDefaultQuestBoard();
   const authTransport = await getAuthTransport();
 
