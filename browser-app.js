@@ -49,6 +49,14 @@ const IDENTITY_STATUS_LABELS = {
   rejected: "Rejected"
 };
 const IDENTITY_REVIEW_STATUS_OPTIONS = ["in_review", "changes_requested", "approved", "rejected"];
+const REPORT_STATUS_LABELS = {
+  submitted: "Submitted",
+  in_review: "In review",
+  validated: "Validated",
+  rejected: "Rejected",
+  forwarded_to_le: "Forwarded to law enforcement"
+};
+const REPORT_REVIEW_STATUS_OPTIONS = ["in_review", "validated", "rejected", "forwarded_to_le"];
 const ID_DOCUMENT_OPTIONS = [
   { value: "drivers_license", label: "Driver's license" },
   { value: "state_id", label: "State ID" },
@@ -212,6 +220,7 @@ let authTransportPromise = null;
 let browserSupabaseClient = null;
 let identityVerificationRecord = null;
 let adminIdentityRecords = [];
+let adminReportRecords = [];
 let missionCommentsByMissionId = {};
 let browserAdminMissionMode = false;
 
@@ -1934,6 +1943,15 @@ async function requestBrowserJson(url, options = {}) {
     throw new Error("The admin console still requires the Node/Supabase server deployment.");
   }
 
+  if (
+    url === "/api/reports" ||
+    url === "/api/leaderboard" ||
+    url === "/api/dashboard/stats" ||
+    url.startsWith("/api/training")
+  ) {
+    throw new Error("This feature still requires the Node/Supabase server deployment.");
+  }
+
   throw new Error("Request failed.");
 }
 
@@ -2262,7 +2280,7 @@ function renderProfileCard() {
   });
 }
 
-function renderDashboardStats() {
+async function renderDashboardStats() {
   const container = document.getElementById("dashboard-stats");
   if (!container) {
     return;
@@ -2270,10 +2288,45 @@ function renderDashboardStats() {
 
   container.innerHTML = "";
 
-  dashboardStatsData.forEach((stat) => {
+  let stats = null;
+  try {
+    const payload = await requestJson("/api/dashboard/stats", { method: "GET" });
+    stats = payload.stats;
+  } catch (error) {
+    console.warn("Dashboard stats unavailable.", error);
+  }
+
+  const cards = stats
+    ? [
+        {
+          label: "Active guardians",
+          value: stats.activeGuardians.toLocaleString(),
+          detail: "Verified accounts on the platform"
+        },
+        {
+          label: "Open missions",
+          value: stats.openMissions.toLocaleString(),
+          detail: "Active in the mission catalog"
+        },
+        {
+          label: "Validated reports",
+          value: stats.validatedReports.toLocaleString(),
+          detail: "Confirmed by moderator review"
+        },
+        {
+          label: "Pending reviews",
+          value: stats.pendingReviews.toLocaleString(),
+          detail: "Identity, quest, and report queue depth"
+        }
+      ]
+    : dashboardStatsData;
+
+  cards.forEach((stat) => {
     const card = document.createElement("article");
     card.className = "stat-card";
-    card.innerHTML = `<p>${stat.label}</p><strong>${stat.value}</strong><span>${stat.detail}</span>`;
+    card.innerHTML = `<p>${escapeHtml(stat.label)}</p><strong>${escapeHtml(
+      String(stat.value)
+    )}</strong><span>${escapeHtml(stat.detail)}</span>`;
     container.appendChild(card);
   });
 }
@@ -3227,7 +3280,39 @@ function wireMissionFilters() {
   });
 }
 
-function renderModules() {
+function buildTrainingQuizMarkup(trainingModule) {
+  const questionsMarkup = (trainingModule.quiz || [])
+    .map((question, questionIndex) => {
+      const optionsMarkup = question.options
+        .map(
+          (option, optionIndex) => `
+            <label class="quiz-option">
+              <input type="radio" name="q-${questionIndex}" value="${optionIndex}" required />
+              <span>${escapeHtml(option)}</span>
+            </label>
+          `
+        )
+        .join("");
+
+      return `
+        <div class="quiz-question" data-question="${questionIndex}">
+          <p>${questionIndex + 1}. ${escapeHtml(question.question)}</p>
+          <div class="quiz-options">${optionsMarkup}</div>
+        </div>
+      `;
+    })
+    .join("");
+
+  return `
+    <form class="quiz-form" data-module-id="${escapeHtml(trainingModule.id)}">
+      <div class="quiz-questions">${questionsMarkup}</div>
+      <button class="secondary-button compact-button" type="submit">Submit quiz</button>
+      <p class="form-feedback"></p>
+    </form>
+  `;
+}
+
+async function renderModules() {
   const list = document.getElementById("module-list");
   if (!list) {
     return;
@@ -3235,15 +3320,108 @@ function renderModules() {
 
   list.innerHTML = "";
 
-  modulesData.forEach((module) => {
+  let board = null;
+  try {
+    board = await requestJson("/api/training", { method: "GET" });
+  } catch (error) {
+    console.warn("Training board unavailable.", error);
+  }
+
+  if (!board) {
+    modulesData.forEach((trainingModule) => {
+      const card = document.createElement("article");
+      card.className = "module-card";
+      card.innerHTML = `
+        <strong>${escapeHtml(trainingModule.title)}</strong>
+        <span>${escapeHtml(trainingModule.detail)}</span>
+        <div class="module-progress"><span style="width: ${trainingModule.progress}%"></span></div>
+      `;
+      list.appendChild(card);
+    });
+    return;
+  }
+
+  board.modules.forEach((trainingModule) => {
+    const progress = trainingModule.progress;
+    const isCompleted = progress.status === "completed";
     const card = document.createElement("article");
     card.className = "module-card";
+
+    const statusLabel = isCompleted
+      ? `Completed · +${trainingModule.xpReward} XP`
+      : progress.status === "in_progress"
+      ? "In progress"
+      : "Not started";
+
     card.innerHTML = `
-      <strong>${module.title}</strong>
-      <span>${module.detail}</span>
-      <div class="module-progress"><span style="width: ${module.progress}%"></span></div>
+      <strong>${escapeHtml(trainingModule.title)}</strong>
+      <span>${escapeHtml(trainingModule.detail)}</span>
+      <div class="module-progress"><span style="width: ${progress.progressPercent || 0}%"></span></div>
+      <div class="module-status-row">
+        <span class="chip">${escapeHtml(statusLabel)}</span>
+        ${
+          progress.quizScore !== null && progress.quizScore !== undefined
+            ? `<span class="chip">Last score: ${progress.quizScore}%</span>`
+            : ""
+        }
+      </div>
+      ${isCompleted ? "" : buildTrainingQuizMarkup(trainingModule)}
     `;
     list.appendChild(card);
+
+    if (!isCompleted) {
+      wireTrainingQuizForm(card.querySelector(".quiz-form"), trainingModule);
+    }
+  });
+}
+
+function wireTrainingQuizForm(form, trainingModule) {
+  if (!form) {
+    return;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const feedback = form.querySelector(".form-feedback");
+    const questionCount = (trainingModule.quiz || []).length;
+    const quizAnswers = [];
+
+    for (let index = 0; index < questionCount; index += 1) {
+      const selected = form.querySelector(`input[name="q-${index}"]:checked`);
+      if (!selected) {
+        if (feedback) {
+          feedback.textContent = "Answer every question before submitting.";
+          feedback.className = "form-feedback error";
+        }
+        return;
+      }
+      quizAnswers.push(Number(selected.value));
+    }
+
+    try {
+      const payload = await requestJson(`/api/training/${trainingModule.id}/progress`, {
+        method: "POST",
+        body: JSON.stringify({ quizAnswers })
+      });
+      if (payload.user) {
+        sessionUser = payload.user;
+        renderReadiness();
+        renderProfileCard();
+      }
+      const passed = payload.progress?.status === "completed";
+      if (feedback) {
+        feedback.textContent = passed
+          ? `Passed with a score of ${payload.progress.quizScore}%. XP awarded.`
+          : `Scored ${payload.progress.quizScore}%. Review the module and try again.`;
+        feedback.className = passed ? "form-feedback success" : "form-feedback error";
+      }
+      renderModules();
+    } catch (error) {
+      if (feedback) {
+        feedback.textContent = error.message;
+        feedback.className = "form-feedback error";
+      }
+    }
   });
 }
 
@@ -3263,6 +3441,56 @@ function renderSafetyControls() {
   });
 }
 
+function getReportStatusLabel(status) {
+  switch (status) {
+    case "submitted":
+      return "Submitted";
+    case "in_review":
+      return "In review";
+    case "validated":
+      return "Validated";
+    case "rejected":
+      return "Rejected";
+    case "forwarded_to_le":
+      return "Forwarded to law enforcement";
+    default:
+      return status;
+  }
+}
+
+async function renderReportHistory() {
+  const historyList = document.getElementById("report-history");
+  if (!historyList) {
+    return;
+  }
+
+  historyList.innerHTML = "<p>Loading your report history…</p>";
+
+  try {
+    const payload = await requestJson("/api/reports", { method: "GET" });
+    const reports = payload.reports || [];
+
+    if (!reports.length) {
+      historyList.innerHTML = "<p>No reports submitted yet.</p>";
+      return;
+    }
+
+    historyList.innerHTML = "";
+    reports.forEach((report) => {
+      const row = document.createElement("article");
+      row.className = "safety-card";
+      const submittedDate = report.createdAt ? new Date(report.createdAt).toLocaleDateString() : "";
+      row.innerHTML = `
+        <span>${escapeHtml(report.platform || "Report")} · ${escapeHtml(submittedDate)}</span>
+        <strong>${escapeHtml(getReportStatusLabel(report.status))}</strong>
+      `;
+      historyList.appendChild(row);
+    });
+  } catch (error) {
+    historyList.innerHTML = `<p>${escapeHtml(error.message)}</p>`;
+  }
+}
+
 function renderReportForm() {
   const reportForm = document.getElementById("report-form");
   const preview = document.getElementById("report-preview");
@@ -3270,24 +3498,49 @@ function renderReportForm() {
     return;
   }
 
-  reportForm.addEventListener("submit", (event) => {
+  renderReportHistory();
+
+  reportForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const formData = new FormData(reportForm);
-    const platform = formData.get("platform");
-    const evidence = formData.get("evidence");
-    const summary = formData.get("summary") || "No summary provided.";
+    const platform = String(formData.get("platform") || "");
+    const evidence = String(formData.get("evidence") || "");
+    const summaryText = String(formData.get("summary") || "").trim();
+    const category = platform === "Offline encounter" ? "real_world" : "online";
 
-    preview.innerHTML = `
-      <strong>Draft created</strong><br />
-      Platform: ${escapeHtml(platform)}<br />
-      Evidence: ${escapeHtml(evidence)}<br />
-      Status: Pending moderator validation<br />
-      Summary: ${escapeHtml(summary)}
-    `;
+    if (!summaryText) {
+      preview.innerHTML = `<strong>A summary is required before a report can be submitted.</strong>`;
+      return;
+    }
+
+    preview.innerHTML = "<strong>Submitting…</strong>";
+
+    try {
+      const payload = await requestJson("/api/reports", {
+        method: "POST",
+        body: JSON.stringify({
+          platform,
+          category,
+          summary: `[${evidence}] ${summaryText}`
+        })
+      });
+
+      preview.innerHTML = `
+        <strong>Report submitted</strong><br />
+        Platform: ${escapeHtml(platform)}<br />
+        Evidence: ${escapeHtml(evidence)}<br />
+        Status: ${escapeHtml(getReportStatusLabel(payload.report.status))}<br />
+        Summary: ${escapeHtml(summaryText)}
+      `;
+      reportForm.reset();
+      renderReportHistory();
+    } catch (error) {
+      preview.innerHTML = `<strong>Unable to submit report.</strong><br />${escapeHtml(error.message)}`;
+    }
   });
 }
 
-function renderLeaderboard() {
+async function renderLeaderboard() {
   const list = document.getElementById("leaderboard");
   if (!list) {
     return;
@@ -3295,14 +3548,26 @@ function renderLeaderboard() {
 
   list.innerHTML = "";
 
-  leaderboardData.forEach((entry, index) => {
+  let entries = null;
+  try {
+    const payload = await requestJson("/api/leaderboard", { method: "GET" });
+    entries = payload.entries;
+  } catch (error) {
+    console.warn("Leaderboard unavailable.", error);
+  }
+
+  const rows = entries
+    ? entries.map((entry) => ({ name: entry.displayName, role: entry.role, points: entry.points }))
+    : leaderboardData;
+
+  rows.forEach((entry, index) => {
     const row = document.createElement("div");
     row.className = "leader-row";
     row.innerHTML = `
       <div class="leader-rank">${index + 1}</div>
       <div class="leader-copy">
-        <strong>${entry.name}</strong>
-        <span>${entry.role}</span>
+        <strong>${escapeHtml(entry.name)}</strong>
+        <span>${escapeHtml(entry.role)}</span>
       </div>
       <strong>${entry.points.toLocaleString()} XP</strong>
     `;
@@ -4701,6 +4966,9 @@ function renderAdminSummary() {
   const adminCount = adminUsers.filter((user) => user.isAdmin).length;
   const activeMissionCount = adminMissionRecords.filter((mission) => mission.isActive !== false).length;
   const submittedQuestCount = adminQuestRecords.filter((quest) => quest.status === "submitted").length;
+  const pendingReportCount = adminReportRecords.filter((report) =>
+    ["submitted", "in_review"].includes(report.status)
+  ).length;
 
   summary.innerHTML = renderAdminStatCards([
     { label: "Total accounts", value: adminUsers.length, detail: "Stored account profiles" },
@@ -4711,6 +4979,7 @@ function renderAdminSummary() {
       value: submittedQuestCount,
       detail: "Submitted quests waiting on confirmation"
     },
+    { label: "Report reviews", value: pendingReportCount, detail: "Reports awaiting moderator action" },
     { label: "Admin users", value: adminCount, detail: "Accounts with elevated access" }
   ]);
 }
@@ -4879,6 +5148,114 @@ function renderAdminIdentityList() {
     : '<article class="admin-user-card"><div class="admin-user-head"><div><strong>No verification packages yet</strong><span>Members will appear here after they save or submit their onboarding record.</span></div></div></article>';
 
   wireAdminIdentityForms();
+}
+
+function buildAdminReportCard(report) {
+  const statusOptions = REPORT_REVIEW_STATUS_OPTIONS.map(
+    (status) =>
+      `<option value="${status}" ${status === report.status ? "selected" : ""}>${
+        REPORT_STATUS_LABELS[status] || status
+      }</option>`
+  ).join("");
+
+  return `
+    <article class="admin-user-card" data-report-id="${report.id}">
+      <div class="admin-user-head">
+        <div>
+          <strong>${escapeHtml(report.user?.displayName || "Unknown guardian")}</strong>
+          <span>${escapeHtml(report.user?.email || "No email on file")}</span>
+        </div>
+        <span class="chip">${escapeHtml(REPORT_STATUS_LABELS[report.status] || report.status)}</span>
+      </div>
+      <div class="profile-card admin-identity-profile">
+        <div>
+          <p class="profile-label">Platform</p>
+          <strong>${escapeHtml(report.platform || "Not specified")}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Category</p>
+          <strong>${escapeHtml(report.category || "online")}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Submitted</p>
+          <strong>${report.createdAt ? new Date(report.createdAt).toLocaleString() : "Unknown"}</strong>
+        </div>
+        <div>
+          <p class="profile-label">Linked mission</p>
+          <strong>${escapeHtml(report.mission?.title || "None")}</strong>
+        </div>
+      </div>
+      <p class="hero-text">${escapeHtml(report.summary || "No summary provided.")}</p>
+      <form class="admin-report-form">
+        <label>
+          Review status
+          <select name="status">${statusOptions}</select>
+        </label>
+        <label class="span-two-field">
+          Reviewer notes
+          <textarea name="reviewNotes" rows="3" placeholder="Add validation notes or next steps.">${escapeHtml(
+            report.reviewNotes || ""
+          )}</textarea>
+        </label>
+        <button class="primary-button" type="submit">Save review</button>
+      </form>
+      <div class="form-feedback" id="report-admin-feedback-${report.id}"></div>
+    </article>
+  `;
+}
+
+function wireAdminReportForms() {
+  document.querySelectorAll(".admin-report-form").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const card = form.closest("[data-report-id]");
+      const reportId = card?.dataset.reportId;
+      if (!reportId) {
+        return;
+      }
+
+      setFeedback(`report-admin-feedback-${reportId}`, "Saving review...");
+
+      try {
+        const payload = await requestJson(`/api/admin/reports/${reportId}`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            status: form.elements.status.value,
+            reviewNotes: form.elements.reviewNotes.value
+          })
+        });
+
+        adminReportRecords = adminReportRecords.map((record) =>
+          record.id === reportId ? { ...record, ...payload.report } : record
+        );
+        if (payload.user) {
+          adminUsers = adminUsers.map((user) => (user.id === payload.user.id ? payload.user : user));
+        }
+        renderAdminSummary();
+        renderAdminReportList();
+      } catch (error) {
+        setFeedback(`report-admin-feedback-${reportId}`, error.message, "error");
+      }
+    });
+  });
+}
+
+function renderAdminReportList() {
+  const container = document.getElementById("admin-report-list");
+  if (!container) {
+    return;
+  }
+
+  container.innerHTML = adminReportRecords.length
+    ? adminReportRecords
+        .slice()
+        .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+        .map(buildAdminReportCard)
+        .join("")
+    : '<article class="admin-user-card"><div class="admin-user-head"><div><strong>No reports submitted yet</strong><span>Guardian-submitted reports will appear here for review.</span></div></div></article>';
+
+  wireAdminReportForms();
 }
 
 function buildMissionFormValues(form) {
@@ -5349,22 +5726,28 @@ function renderAdminQuestList() {
 }
 
 async function initAdminPage() {
-  const [usersResponse, identityResponse, missionResponse, questResponse] = await Promise.all([
+  const [usersResponse, identityResponse, missionResponse, questResponse, reportResponse] = await Promise.all([
     requestJson("/api/admin/users"),
     requestJson("/api/admin/identity"),
     requestJson("/api/admin/missions"),
-    requestJson("/api/admin/quests")
+    requestJson("/api/admin/quests"),
+    requestJson("/api/admin/reports").catch((error) => {
+      console.warn("Admin reports unavailable.", error);
+      return { reports: [] };
+    })
   ]);
   adminUsers = usersResponse.users;
   adminIdentityRecords = identityResponse.records;
   adminMissionRecords = missionResponse.missions.map((mission) => normalizeMissionRecord(mission));
   missionCatalog = adminMissionRecords.slice();
   adminQuestRecords = questResponse.quests;
+  adminReportRecords = reportResponse.reports || [];
   renderAdminSummary();
   renderAdminUserList();
   renderAdminIdentityList();
   renderAdminMissionList();
   renderAdminQuestList();
+  renderAdminReportList();
 }
 
 async function initProtectedPage() {
@@ -5396,7 +5779,6 @@ async function initProtectedPage() {
   renderRedditSidebar();
   renderReadiness();
   renderProfileCard();
-  renderDashboardStats();
   renderPageLinks();
   renderVerificationTimeline();
   renderQuestSummary();
@@ -5405,11 +5787,12 @@ async function initProtectedPage() {
   wireMissionFilters();
   renderDashboardQuestPanel();
   renderDashboardExperience();
-  renderModules();
   renderSafetyControls();
   renderReportForm();
-  renderLeaderboard();
   renderScoringModel();
+  void renderDashboardStats();
+  void renderModules();
+  void renderLeaderboard();
   renderRoadmap();
   renderRoadmapPhases();
   renderRoadmapFocus();
@@ -5430,6 +5813,7 @@ async function initProtectedPage() {
       const list = document.getElementById("admin-user-list");
       const identityList = document.getElementById("admin-identity-list");
       const questList = document.getElementById("admin-quest-list");
+      const reportList = document.getElementById("admin-report-list");
       renderAdminSummary();
       if (list) {
         list.innerHTML =
@@ -5442,6 +5826,10 @@ async function initProtectedPage() {
       if (questList) {
         questList.innerHTML =
           '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Quest confirmation unavailable</strong><span>Quest confirmer actions rely on privileged server APIs and are not exposed on static hosting.</span></div></div></article>';
+      }
+      if (reportList) {
+        reportList.innerHTML =
+          '<article class="admin-user-card"><div class="admin-user-head"><div><strong>Report review unavailable</strong><span>Report review uses privileged server APIs and is not exposed on static hosting.</span></div></div></article>';
       }
       try {
         const payload = await requestJson("/api/admin/missions", { method: "GET" });

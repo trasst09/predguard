@@ -67,6 +67,11 @@ const QUEST_USER_STATUSES = new Set(["accepted", "submitted"]);
 const QUEST_ADMIN_STATUSES = new Set(["submitted", "needs_revision", "confirmed"]);
 const ID_DOCUMENT_TYPES = new Set(["unset", "drivers_license", "state_id", "passport", "other"]);
 const ATTACHMENT_KINDS = new Set(["image", "video"]);
+const REPORT_CATEGORIES = new Set(["online", "real_world", "other"]);
+const REPORT_USER_STATUSES = new Set(["submitted"]);
+const REPORT_ADMIN_STATUSES = new Set(["submitted", "in_review", "validated", "rejected", "forwarded_to_le"]);
+const REPORT_VALIDATION_XP = 150;
+const TRAINING_QUIZ_PASS_SCORE = 80;
 const MAX_ATTACHMENT_COUNT = 4;
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
 const MAX_COMMENT_LENGTH = 1200;
@@ -247,6 +252,179 @@ const SEEDED_MISSION_CATALOG = [
   }
 ];
 
+const TRAINING_MODULES = [
+  {
+    id: "legal-boundaries",
+    title: "Legal boundaries and entrapment risks",
+    detail: "Covers citizen limitations, entrapment risk, evidence handling, and escalation rules.",
+    xpReward: 150,
+    readinessReward: 8,
+    quiz: [
+      {
+        question: "A Guardian may lawfully act as a private citizen investigator, but must always:",
+        options: [
+          "Defer to law enforcement and official reporting channels",
+          "Confront a suspect directly to gather a confession",
+          "Impersonate a law enforcement officer to gain trust",
+          "Withhold evidence until a reward is offered"
+        ],
+        correctIndex: 0
+      },
+      {
+        question: "Entrapment risk is highest when a Guardian:",
+        options: [
+          "Documents unsolicited messages from a suspect",
+          "Initiates and repeatedly pressures someone into an illegal act",
+          "Forwards a tip to NCMEC",
+          "Completes mandatory training modules"
+        ],
+        correctIndex: 1
+      },
+      {
+        question: "Chain-of-custody for evidence means:",
+        options: [
+          "Only the first screenshot matters",
+          "Evidence can be edited before submission",
+          "A documented, unaltered trail from capture to handoff",
+          "Evidence is deleted after 24 hours"
+        ],
+        correctIndex: 2
+      }
+    ]
+  },
+  {
+    id: "grooming-recognition",
+    title: "Grooming recognition across platforms",
+    detail: "Scenario-based examples for Discord, Instagram, Roblox, and direct messaging patterns.",
+    xpReward: 180,
+    readinessReward: 10,
+    quiz: [
+      {
+        question: "A common early-stage grooming tactic is:",
+        options: [
+          "Public, group-visible conversation only",
+          "Isolating a minor into private messages and building trust",
+          "Reporting suspicious accounts to moderators",
+          "Requesting parental contact information"
+        ],
+        correctIndex: 1
+      },
+      {
+        question: "When you spot a suspicious pattern, the correct first step is to:",
+        options: [
+          "Message the suspect to gather more evidence yourself",
+          "Document what you observed with timestamps and platform context",
+          "Post about it publicly to warn others",
+          "Ignore it unless a minor asks for help directly"
+        ],
+        correctIndex: 1
+      }
+    ]
+  },
+  {
+    id: "realworld-safety-protocol",
+    title: "Real-world safety protocol",
+    detail: "Covers meeting location rules, backup roles, exit strategies, and de-escalation.",
+    xpReward: 220,
+    readinessReward: 12,
+    quiz: [
+      {
+        question: "Before any real-world support role, a Guardian must have:",
+        options: [
+          "A verified backup and an approved safety briefing",
+          "No requirements beyond training completion",
+          "A personal weapon for protection",
+          "Sole discretion to change the meeting location"
+        ],
+        correctIndex: 0
+      },
+      {
+        question: "Live check-ins during a real-world mission window exist to:",
+        options: [
+          "Track XP progress only",
+          "Confirm ongoing safety and trigger escalation if a check-in is missed",
+          "Replace the panic button entirely",
+          "Provide content for the community feed"
+        ],
+        correctIndex: 1
+      },
+      {
+        question: "If a situation escalates unexpectedly, the correct response is to:",
+        options: [
+          "Stay to keep gathering evidence",
+          "Use the exit strategy and panic escalation, then debrief",
+          "Confront the individual directly",
+          "Wait for law enforcement before leaving the area"
+        ],
+        correctIndex: 1
+      }
+    ]
+  },
+  {
+    id: "trauma-informed-reporting",
+    title: "Trauma-informed reporting",
+    detail: "Focuses on supportive language, documentation precision, and mental health awareness.",
+    xpReward: 130,
+    readinessReward: 6,
+    quiz: [
+      {
+        question: "Trauma-informed reporting prioritizes:",
+        options: [
+          "Sensational language to emphasize urgency",
+          "Precise, neutral documentation and supportive language",
+          "Minimizing detail to protect the reporter's time",
+          "Public disclosure of the minor's identity"
+        ],
+        correctIndex: 1
+      },
+      {
+        question: "Mental health awareness in this context means:",
+        options: [
+          "Guardians should provide clinical counseling themselves",
+          "Recognizing signs of distress and routing to appropriate support resources",
+          "Avoiding any mention of impact on those involved",
+          "Treating every case identically regardless of context"
+        ],
+        correctIndex: 1
+      }
+    ]
+  }
+];
+
+function getPublicTrainingModules() {
+  return TRAINING_MODULES.map((trainingModule) => ({
+    id: trainingModule.id,
+    title: trainingModule.title,
+    detail: trainingModule.detail,
+    xpReward: trainingModule.xpReward,
+    readinessReward: trainingModule.readinessReward,
+    questionCount: trainingModule.quiz.length,
+    quiz: trainingModule.quiz.map((question) => ({
+      question: question.question,
+      options: question.options
+    }))
+  }));
+}
+
+function getTrainingModuleById(moduleId) {
+  return TRAINING_MODULES.find((trainingModule) => trainingModule.id === moduleId) || null;
+}
+
+function gradeTrainingQuiz(trainingModule, answers) {
+  if (!Array.isArray(answers) || answers.length !== trainingModule.quiz.length) {
+    throw new Error("Answer the full quiz before submitting.");
+  }
+
+  let correct = 0;
+  trainingModule.quiz.forEach((question, index) => {
+    if (Number(answers[index]) === question.correctIndex) {
+      correct += 1;
+    }
+  });
+
+  return Math.round((correct / trainingModule.quiz.length) * 100);
+}
+
 function normalizeEmail(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -351,6 +529,53 @@ function mapUserQuest(record) {
     confirmedAt: record.confirmed_at,
     confirmedBy: record.confirmed_by,
     confirmationNotes: record.confirmation_notes || "",
+    completedAt: record.completed_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function mapReportRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    userId: record.user_id,
+    missionId: record.mission_id,
+    category: record.category,
+    platform: record.platform || "",
+    summary: record.summary || "",
+    externalReference: record.external_reference || "",
+    evidenceAttachments: normalizeStoredAttachments(record.evidence_attachments),
+    status: record.status,
+    reviewNotes: record.review_notes || "",
+    reviewedBy: record.reviewed_by || null,
+    reviewedAt: record.reviewed_at,
+    rewardGrantedAt: record.reward_granted_at,
+    xpReward: record.xp_reward || 0,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function mapTrainingProgressRecord(record) {
+  if (!record) {
+    return null;
+  }
+
+  return {
+    id: record.id,
+    userId: record.user_id,
+    moduleId: record.module_id,
+    status: record.status,
+    progressPercent: record.progress_percent,
+    quizScore: record.quiz_score,
+    attempts: record.attempts || 0,
+    xpReward: record.xp_reward || 0,
+    readinessReward: record.readiness_reward || 0,
+    rewardGrantedAt: record.reward_granted_at,
     completedAt: record.completed_at,
     createdAt: record.created_at,
     updatedAt: record.updated_at
@@ -1357,6 +1582,157 @@ async function supabasePatchUserQuest(questId, updates) {
   return mapUserQuest(data);
 }
 
+async function supabaseListReportsByUser(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("reports")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+
+  throwIfSupabaseError(error, "Unable to load reports.");
+  return data.map(mapReportRecord);
+}
+
+async function supabaseListAllReports() {
+  const { data, error } = await supabaseAdmin
+    .from("reports")
+    .select("*")
+    .order("created_at", { ascending: false });
+
+  throwIfSupabaseError(error, "Unable to load the reports queue.");
+  return data.map(mapReportRecord);
+}
+
+async function supabaseGetReportById(reportId) {
+  const { data, error } = await supabaseAdmin
+    .from("reports")
+    .select("*")
+    .eq("id", reportId)
+    .maybeSingle();
+
+  throwIfSupabaseError(error, "Unable to load the report.");
+  return mapReportRecord(data);
+}
+
+async function supabaseCreateReport(record) {
+  const { data, error } = await supabaseAdmin.from("reports").insert(record).select("*").single();
+  throwIfSupabaseError(error, "Unable to submit the report.");
+  return mapReportRecord(data);
+}
+
+async function supabasePatchReport(reportId, updates) {
+  const { data, error } = await supabaseAdmin
+    .from("reports")
+    .update(updates)
+    .eq("id", reportId)
+    .select("*")
+    .single();
+
+  throwIfSupabaseError(error, "Unable to update the report.");
+  return mapReportRecord(data);
+}
+
+async function supabaseCountReports(status) {
+  const { count, error } = await supabaseAdmin
+    .from("reports")
+    .select("*", { count: "exact", head: true })
+    .eq("status", status);
+
+  if (error && error.code === "42P01") {
+    return 0;
+  }
+
+  throwIfSupabaseError(error, "Unable to count reports.");
+  return count || 0;
+}
+
+async function supabaseListTrainingProgressByUser(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("user_training_progress")
+    .select("*")
+    .eq("user_id", userId);
+
+  throwIfSupabaseError(error, "Unable to load training progress.");
+  return data.map(mapTrainingProgressRecord);
+}
+
+async function supabaseGetTrainingProgress(userId, moduleId) {
+  const { data, error } = await supabaseAdmin
+    .from("user_training_progress")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("module_id", moduleId)
+    .maybeSingle();
+
+  throwIfSupabaseError(error, "Unable to load training progress.");
+  return mapTrainingProgressRecord(data);
+}
+
+async function supabaseUpsertTrainingProgress(record) {
+  const { data, error } = await supabaseAdmin
+    .from("user_training_progress")
+    .upsert(record, { onConflict: "user_id,module_id" })
+    .select("*")
+    .single();
+
+  throwIfSupabaseError(error, "Unable to save training progress.");
+  return mapTrainingProgressRecord(data);
+}
+
+async function supabaseCountProfiles() {
+  const { count, error } = await supabaseAdmin
+    .from("profiles")
+    .select("*", { count: "exact", head: true });
+
+  throwIfSupabaseError(error, "Unable to count guardians.");
+  return count || 0;
+}
+
+async function supabaseCountActiveMissions() {
+  const { count, error } = await supabaseAdmin
+    .from("missions")
+    .select("*", { count: "exact", head: true })
+    .eq("is_active", true);
+
+  if (error && error.code === "42P01") {
+    return SEEDED_MISSION_CATALOG.length;
+  }
+
+  throwIfSupabaseError(error, "Unable to count missions.");
+  return count || 0;
+}
+
+async function supabaseCountIdentityQueue() {
+  const { count, error } = await supabaseAdmin
+    .from("identity_verifications")
+    .select("*", { count: "exact", head: true })
+    .in("status", ["submitted", "in_review"]);
+
+  throwIfSupabaseError(error, "Unable to count the identity review queue.");
+  return count || 0;
+}
+
+async function supabaseCountQuestQueue() {
+  const { count, error } = await supabaseAdmin
+    .from("user_quests")
+    .select("*", { count: "exact", head: true })
+    .eq("status", "submitted");
+
+  throwIfSupabaseError(error, "Unable to count the quest review queue.");
+  return count || 0;
+}
+
+async function supabaseListTopProfiles(limit = 50) {
+  const { data, error } = await supabaseAdmin
+    .from("profiles")
+    .select("*")
+    .order("points", { ascending: false })
+    .limit(limit);
+
+  throwIfSupabaseError(error, "Unable to load the leaderboard.");
+  return data.map(mapSupabaseProfile);
+}
+
 async function supabaseAuthenticateUser(email, password) {
   const { data, error } = await supabaseAuth.auth.signInWithPassword({
     email,
@@ -1783,6 +2159,229 @@ async function listQuestQueue() {
 
 async function listAdminMissions() {
   return listMissionCatalog({ includeInactive: true });
+}
+
+function sanitizeReportCategory(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  return REPORT_CATEGORIES.has(normalized) ? normalized : "online";
+}
+
+async function listUserReports(user) {
+  const reports = await supabaseListReportsByUser(user.id);
+  const missionCatalog = await listMissionCatalog({ includeInactive: true });
+  const missionsById = new Map(missionCatalog.map((mission) => [mission.id, mission]));
+  return reports.map((report) => ({
+    ...report,
+    mission: report.missionId ? missionsById.get(report.missionId) || null : null
+  }));
+}
+
+async function createReport(user, body) {
+  const category = sanitizeReportCategory(body.category);
+  const platform = sanitizeMissionText(body.platform, 120, "");
+  const summary = sanitizeMissionText(body.summary, 4000, "");
+  const externalReference = sanitizeMissionText(body.externalReference, 200, "");
+  const missionId = body.missionId ? sanitizeMissionText(body.missionId, 80, "") : null;
+
+  if (!summary) {
+    throw new Error("A summary of what you observed is required.");
+  }
+
+  if (missionId) {
+    const mission = await getMissionCatalogEntryById(missionId);
+    if (!mission) {
+      throw new Error("Linked mission not found.");
+    }
+  }
+
+  const attachments = await persistSubmissionAttachments(user.id, missionId || "report", body.evidenceAttachments);
+
+  const record = await supabaseCreateReport({
+    user_id: user.id,
+    mission_id: missionId,
+    category,
+    platform,
+    summary,
+    external_reference: externalReference,
+    evidence_attachments: attachments || [],
+    status: "submitted"
+  });
+
+  return record;
+}
+
+async function listAdminReports() {
+  const [reports, users] = await Promise.all([supabaseListAllReports(), listUsers()]);
+  const usersById = new Map(users.map((user) => [user.id, user]));
+  return reports.map((report) => ({
+    ...report,
+    user: usersById.get(report.userId) || null
+  }));
+}
+
+async function reviewReport(adminUser, reportId, updates) {
+  const existing = await supabaseGetReportById(reportId);
+  if (!existing) {
+    throw new Error("Report not found.");
+  }
+
+  const status = String(updates.status || "").trim();
+  if (!REPORT_ADMIN_STATUSES.has(status)) {
+    throw new Error("Report status must be submitted, in_review, validated, rejected, or forwarded_to_le.");
+  }
+
+  const patch = {
+    status,
+    review_notes: sanitizeMissionText(updates.reviewNotes, 2000, ""),
+    reviewed_by: adminUser.id,
+    reviewed_at: new Date().toISOString()
+  };
+
+  let reviewedReport = await supabasePatchReport(reportId, patch);
+  let reporter = await getUserById(existing.userId);
+
+  if (status === "validated" && !existing.rewardGrantedAt) {
+    reviewedReport = await supabasePatchReport(reportId, {
+      reward_granted_at: new Date().toISOString(),
+      xp_reward: REPORT_VALIDATION_XP
+    });
+    reporter = await supabasePatchProfile(existing.userId, {
+      points: (reporter.points || 0) + REPORT_VALIDATION_XP
+    });
+  }
+
+  return {
+    report: { ...reviewedReport, user: reporter },
+    user: reporter
+  };
+}
+
+async function getTrainingBoard(user) {
+  const [progressRecords] = await Promise.all([supabaseListTrainingProgressByUser(user.id)]);
+  const progressByModule = new Map(progressRecords.map((record) => [record.moduleId, record]));
+
+  const modules = getPublicTrainingModules().map((trainingModule) => {
+    const progress = progressByModule.get(trainingModule.id) || {
+      status: "not_started",
+      progressPercent: 0,
+      quizScore: null,
+      attempts: 0,
+      completedAt: null
+    };
+
+    return {
+      ...trainingModule,
+      progress
+    };
+  });
+
+  const completedCount = modules.filter((item) => item.progress.status === "completed").length;
+
+  return {
+    modules,
+    summary: {
+      totalModules: modules.length,
+      completedModules: completedCount,
+      completionPercent: modules.length
+        ? Math.round((completedCount / modules.length) * 100)
+        : 0
+    }
+  };
+}
+
+async function updateTrainingProgress(user, moduleId, body) {
+  const trainingModule = getTrainingModuleById(moduleId);
+  if (!trainingModule) {
+    throw new Error("Training module not found.");
+  }
+
+  const existing = await supabaseGetTrainingProgress(user.id, moduleId);
+  if (existing?.status === "completed") {
+    throw new Error("This module is already completed.");
+  }
+
+  const record = {
+    user_id: user.id,
+    module_id: moduleId
+  };
+
+  if (Array.isArray(body.quizAnswers)) {
+    const score = gradeTrainingQuiz(trainingModule, body.quizAnswers);
+    record.quiz_score = score;
+    record.attempts = (existing?.attempts || 0) + 1;
+
+    if (score >= TRAINING_QUIZ_PASS_SCORE) {
+      record.status = "completed";
+      record.progress_percent = 100;
+      record.completed_at = new Date().toISOString();
+      record.xp_reward = trainingModule.xpReward;
+      record.readiness_reward = trainingModule.readinessReward;
+    } else {
+      record.status = "in_progress";
+      record.progress_percent = Math.max(existing?.progressPercent || 0, 50);
+    }
+  } else if (body.progressPercent !== undefined) {
+    const progress = Number(body.progressPercent);
+    if (!Number.isFinite(progress)) {
+      throw new Error("Progress must be a number.");
+    }
+
+    record.progress_percent = Math.max(0, Math.min(99, Math.round(progress)));
+    record.status = record.progress_percent > 0 ? "in_progress" : "not_started";
+  } else {
+    throw new Error("Provide quizAnswers or progressPercent to update training progress.");
+  }
+
+  const saved = await supabaseUpsertTrainingProgress(record);
+
+  let member = user;
+  if (saved.status === "completed" && !existing?.rewardGrantedAt) {
+    saved.rewardGrantedAt = new Date().toISOString();
+    await supabaseUpsertTrainingProgress({
+      user_id: user.id,
+      module_id: moduleId,
+      reward_granted_at: saved.rewardGrantedAt
+    });
+    member = await supabasePatchProfile(user.id, {
+      points: (user.points || 0) + trainingModule.xpReward,
+      readiness_score: Math.min(100, (user.readinessScore || 0) + trainingModule.readinessReward)
+    });
+  }
+
+  return {
+    user: member,
+    progress: saved
+  };
+}
+
+async function getLeaderboard() {
+  const profiles = await supabaseListTopProfiles(50);
+  return profiles.map((profile) => ({
+    id: profile.id,
+    displayName: profile.displayName,
+    role: profile.role,
+    region: profile.region,
+    points: profile.points
+  }));
+}
+
+async function getDashboardStats() {
+  const [activeGuardians, openMissions, validatedReports, identityQueue, questQueue, reportQueue] =
+    await Promise.all([
+      supabaseCountProfiles(),
+      supabaseCountActiveMissions(),
+      supabaseCountReports("validated"),
+      supabaseCountIdentityQueue(),
+      supabaseCountQuestQueue(),
+      supabaseCountReports("submitted")
+    ]);
+
+  return {
+    activeGuardians,
+    openMissions,
+    validatedReports,
+    pendingReviews: identityQueue + questQueue + reportQueue
+  };
 }
 
 async function listMissionComments(missionId) {
@@ -2346,6 +2945,55 @@ async function handleMissionCommentCreate(request, response, currentUser, missio
   sendJson(response, 201, { comments });
 }
 
+async function handleReportsList(response, currentUser) {
+  const reports = await listUserReports(currentUser);
+  sendJson(response, 200, { reports });
+}
+
+async function handleReportCreate(request, response, currentUser) {
+  const body = await parseBody(request);
+  const report = await createReport(currentUser, body);
+  sendJson(response, 201, { report });
+}
+
+async function handleAdminReportsList(response) {
+  const reports = await listAdminReports();
+  sendJson(response, 200, { reports });
+}
+
+async function handleAdminReportReview(request, response, adminUser, reportId) {
+  const body = await parseBody(request);
+  const payload = await reviewReport(adminUser, reportId, {
+    status: body.status,
+    reviewNotes: body.reviewNotes
+  });
+  sendJson(response, 200, payload);
+}
+
+async function handleTrainingGet(response, currentUser) {
+  const board = await getTrainingBoard(currentUser);
+  sendJson(response, 200, board);
+}
+
+async function handleTrainingProgressUpdate(request, response, currentUser, moduleId) {
+  const body = await parseBody(request);
+  const payload = await updateTrainingProgress(currentUser, moduleId, {
+    quizAnswers: body.quizAnswers,
+    progressPercent: body.progressPercent
+  });
+  sendJson(response, 200, payload);
+}
+
+async function handleLeaderboardGet(response) {
+  const entries = await getLeaderboard();
+  sendJson(response, 200, { entries });
+}
+
+async function handleDashboardStatsGet(response) {
+  const stats = await getDashboardStats();
+  sendJson(response, 200, { stats });
+}
+
 async function handleApi(request, response, urlPath) {
   if (urlPath === "/api/auth/session" && request.method === "GET") {
     const user = await getSessionUser(request);
@@ -2603,6 +3251,88 @@ async function handleApi(request, response, urlPath) {
 
     const questId = urlPath.split("/").pop();
     await handleAdminQuestReview(request, response, user, questId);
+    return;
+  }
+
+  if (urlPath === "/api/reports" && request.method === "GET") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleReportsList(response, user);
+    return;
+  }
+
+  if (urlPath === "/api/reports" && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleReportCreate(request, response, user);
+    return;
+  }
+
+  if (urlPath === "/api/admin/reports" && request.method === "GET") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleAdminReportsList(response);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/admin/reports/") && request.method === "PATCH") {
+    const user = await requireAdmin(request, response);
+    if (!user) {
+      return;
+    }
+
+    const reportId = urlPath.split("/").pop();
+    await handleAdminReportReview(request, response, user, reportId);
+    return;
+  }
+
+  if (urlPath === "/api/training" && request.method === "GET") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleTrainingGet(response, user);
+    return;
+  }
+
+  if (urlPath.match(/^\/api\/training\/[^/]+\/progress$/u) && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    const moduleId = urlPath.split("/")[3];
+    await handleTrainingProgressUpdate(request, response, user, moduleId);
+    return;
+  }
+
+  if (urlPath === "/api/leaderboard" && request.method === "GET") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleLeaderboardGet(response);
+    return;
+  }
+
+  if (urlPath === "/api/dashboard/stats" && request.method === "GET") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleDashboardStatsGet(response);
     return;
   }
 
