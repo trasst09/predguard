@@ -375,16 +375,16 @@ const roadmap = [
   {
     week: "Week 5-6",
     title: "Platform and safety tooling",
-    detail: "Consent-based linking, evidence vault structure, map placeholders, and panic escalation UX.",
-    status: "active",
-    progressLabel: "2 of 5 in progress"
+    detail: "Consent-based linking, evidence vault with chain-of-custody, safety controls, and expiring location sharing.",
+    status: "complete",
+    progressLabel: "5 of 5 delivered"
   },
   {
     week: "Week 7-8",
     title: "Moderation, QA, and launch prep",
-    detail: "Security hardening, moderator dashboards, accessibility checks, and beta deployment.",
-    status: "planned",
-    progressLabel: "2 of 6 started"
+    detail: "Security hardening (CSP, headers, RLS), integration tests, accessibility checks, and an operator deployment runbook.",
+    status: "complete",
+    progressLabel: "6 of 6 delivered"
   }
 ];
 
@@ -418,30 +418,30 @@ const roadmapPhases = [
   {
     week: "Weeks 5-6",
     title: "Safety tooling and operational map",
-    status: "active",
-    summary: "The operational map and location preferences exist, but the higher-risk mission safety tooling is only partially represented.",
-    outcome: "This phase should convert the current placeholders into constrained, audit-friendly tools for active mission support.",
+    status: "complete",
+    summary: "The operational map plus constrained, audit-friendly Field Ops tooling for active mission support are in place.",
+    outcome: "Placeholders became durable, consent-based tools: linked platforms, an evidence vault with chain-of-custody, simulated safety controls, and expiring location shares.",
     deliverables: [
       { label: "Interactive operations map with regions, hotspot details, and quest overlays", status: "complete", href: "/map" },
-      { label: "Consent-based account linking for external platforms", status: "planned" },
-      { label: "Evidence vault model for media, notes, and chain-of-custody events", status: "active" },
-      { label: "Live check-ins, panic escalation, and backup coordination flows", status: "planned" },
-      { label: "Real-time location sharing with expiration and safety prompts", status: "planned" }
+      { label: "Consent-based account linking for external platforms", status: "complete", href: "/safety" },
+      { label: "Evidence vault model for media, notes, and chain-of-custody events", status: "complete", href: "/safety" },
+      { label: "Live check-ins, panic escalation, and backup coordination flows", status: "complete", href: "/safety" },
+      { label: "Real-time location sharing with expiration and safety prompts", status: "complete", href: "/safety" }
     ]
   },
   {
     week: "Weeks 7-8",
     title: "Moderation, QA, and launch hardening",
-    status: "planned",
-    summary: "Admin tooling and Supabase support have started this phase, but launch-readiness work still needs to be formalized.",
-    outcome: "Finishing this phase should leave the project with a safer release path, clearer moderation controls, and fewer deployment surprises.",
+    status: "complete",
+    summary: "Admin tooling, Supabase storage, an integration test pass, accessibility improvements, security hardening, and an operator runbook are in place.",
+    outcome: "The project now has a safer release path: automated route/auth tests, a Content-Security-Policy and hardened headers, own-row RLS on every table, and a documented deployment runbook.",
     deliverables: [
       { label: "Admin review console for member roles, points, and verification state", status: "complete", href: "/admin" },
       { label: "Supabase-backed auth/profile storage with schema and env setup", status: "complete" },
-      { label: "Integration test pass across auth, missions, reporting, and admin routes", status: "planned" },
-      { label: "Accessibility pass for keyboard flow, contrast, and mobile layout", status: "planned" },
-      { label: "Security hardening checklist for session, policy, and protected routes", status: "active" },
-      { label: "Beta deployment and operator documentation", status: "planned" }
+      { label: "Integration test pass across auth, protected pages, and field-ops routes", status: "complete" },
+      { label: "Accessibility pass for keyboard flow, contrast, and mobile layout", status: "complete" },
+      { label: "Security hardening: CSP, headers, session flags, and own-row RLS", status: "complete" },
+      { label: "Beta deployment and operator documentation", status: "complete" }
     ]
   }
 ];
@@ -449,18 +449,18 @@ const roadmapPhases = [
 const roadmapFocus = [
   {
     status: "next",
-    title: "Ship the evidence vault backbone",
-    detail: "Model reports, uploads, and review events as durable records so the reporting page can evolve beyond seeded drafts."
+    title: "Legal review before any real-world deployment",
+    detail: "The Field Ops tooling is built and simulated. Panic, location sharing, and evidence handling must pass review by counsel experienced in child-safety tech before any live use."
   },
   {
     status: "next",
-    title: "Design the safety escalation path before building it",
-    detail: "Panic alerts, live check-ins, and location sharing need strong guardrails and explicit expiry behavior before UI polish."
+    title: "Replace simulated integrations with real ones",
+    detail: "Account linking, panic escalation, and NCMEC reporting are modeled end-to-end but not yet wired to Discord/Instagram OAuth, real dispatch, or the live CyberTipline."
   },
   {
     status: "watch",
-    title: "Close launch-readiness gaps",
-    detail: "The app now has multiple protected surfaces, so QA, accessibility review, and a security pass should happen before any broader beta."
+    title: "Operationalize the deployment runbook",
+    detail: "Migrations, environment variables, and the security checklist are documented in OPERATIONS.md — run through it on a staging project before beta."
   }
 ];
 
@@ -499,6 +499,11 @@ const pageLinks = [
     title: "Leaderboard",
     href: "/leaderboard",
     description: "Recognize protocol adherence and constructive contribution."
+  },
+  {
+    title: "Field Ops",
+    href: "/safety",
+    description: "Linked platforms, evidence vault, safety controls, and location sharing."
   },
   {
     title: "Roadmap",

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PredatorGuard Field Ops</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css?v=20260709pogo" />
+  </head>
+  <body class="protected-body" data-page="safety">
+    <div class="page-shell">
+      <header class="hero subpage-hero">
+        <nav class="topbar">
+          <div class="brand-lockup">
+            <span class="brand-mark">PG</span>
+            <div>
+              <p class="eyebrow">Active mission tooling</p>
+              <h1>Field Operations</h1>
+            </div>
+          </div>
+          <div class="nav-cluster">
+            <div class="status-pill" data-session-badge>
+              <span class="status-dot"></span>
+              Secure session
+            </div>
+            <button class="secondary-button compact-button" data-signout type="button">
+              Sign out
+            </button>
+          </div>
+        </nav>
+        <nav class="site-nav" id="site-nav"></nav>
+        <div class="section-intro">
+          <p class="kicker">Consent-based, audit-friendly tooling</p>
+          <h2>Linked platforms, evidence vault, safety controls, and location sharing.</h2>
+          <p class="hero-text">
+            These tools support active, verified missions. Safety-critical actions are simulated
+            inside PredatorGuard and never contact law enforcement or emergency services for you.
+            <strong>For a real emergency, call 911.</strong>
+          </p>
+        </div>
+      </header>
+
+      <main id="field-ops-root">
+        <section class="glass-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Consent-based linking</p>
+              <h3>Linked platform accounts</h3>
+            </div>
+          </div>
+          <div class="field-ops-grid">
+            <div class="field-ops-list" id="linked-accounts-list" data-field-ops-list></div>
+            <form class="report-form field-ops-form" id="link-account-form" data-field-ops-form>
+              <label>
+                Platform
+                <select name="platform" required></select>
+              </label>
+              <label>
+                Account handle
+                <input name="handle" type="text" maxlength="120" placeholder="@handle or username" required />
+              </label>
+              <fieldset class="field-ops-fieldset">
+                <legend>Consent scopes</legend>
+                <label class="field-ops-check"><input type="checkbox" name="consentScopes" value="message_logging" /> Message logging</label>
+                <label class="field-ops-check"><input type="checkbox" name="consentScopes" value="red_flag_alerts" /> Red-flag alerts</label>
+                <label class="field-ops-check"><input type="checkbox" name="consentScopes" value="profile_metadata" /> Profile metadata</label>
+              </fieldset>
+              <button class="primary-button" type="submit">Link with consent</button>
+              <p class="field-ops-status" data-form-status role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Chain-of-custody</p>
+              <h3>Evidence vault</h3>
+            </div>
+          </div>
+          <div class="field-ops-grid">
+            <div class="field-ops-list" id="evidence-list" data-field-ops-list></div>
+            <form class="report-form field-ops-form" id="evidence-form" data-field-ops-form>
+              <label>
+                Label
+                <input name="label" type="text" maxlength="200" placeholder="Short description" required />
+              </label>
+              <label>
+                Type
+                <select name="kind">
+                  <option value="screenshot">Screenshot</option>
+                  <option value="photo">Photo</option>
+                  <option value="video">Video</option>
+                  <option value="audio">Audio</option>
+                  <option value="note">Note</option>
+                  <option value="other">Other</option>
+                </select>
+              </label>
+              <label>
+                Sensitivity
+                <select name="sensitivity">
+                  <option value="standard">Standard</option>
+                  <option value="sensitive">Sensitive</option>
+                  <option value="le_only">Law-enforcement only</option>
+                </select>
+              </label>
+              <label>
+                Linked mission (optional)
+                <select name="missionId"></select>
+              </label>
+              <label>
+                Storage reference (optional)
+                <input name="storageRef" type="text" maxlength="400" placeholder="Secure storage path or link" />
+              </label>
+              <label>
+                Notes
+                <textarea name="notes" rows="3" maxlength="4000" placeholder="Context, timestamps, observations"></textarea>
+              </label>
+              <button class="primary-button" type="submit">Seal and log</button>
+              <p class="field-ops-status" data-form-status role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Live safety</p>
+              <h3>Check-ins, panic, and backup</h3>
+            </div>
+          </div>
+          <div class="field-ops-safety-banner" role="note">
+            Simulated coordination only. PredatorGuard never calls 911 or law enforcement on your
+            behalf. In a real emergency, call 911 directly.
+          </div>
+          <div class="field-ops-controls" id="safety-controls" data-field-ops-controls>
+            <label>
+              Message (optional)
+              <input name="message" type="text" maxlength="600" placeholder="Status or request detail" />
+            </label>
+            <label>
+              Location label (optional)
+              <input name="locationLabel" type="text" maxlength="200" placeholder="e.g. North lot, Bay 3" />
+            </label>
+            <div class="field-ops-button-row">
+              <button class="secondary-button" type="button" data-safety-trigger="check_in">I'm safe (check-in)</button>
+              <button class="secondary-button" type="button" data-safety-trigger="backup">Request backup</button>
+              <button class="primary-button field-ops-panic" type="button" data-safety-trigger="panic">Panic escalation</button>
+            </div>
+          </div>
+          <div class="field-ops-list" id="safety-events-list" data-field-ops-list></div>
+        </section>
+
+        <section class="glass-card">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Consent + auto-expiry</p>
+              <h3>Location sharing</h3>
+            </div>
+          </div>
+          <div class="field-ops-grid">
+            <div class="field-ops-list" id="location-shares-list" data-field-ops-list></div>
+            <form class="report-form field-ops-form" id="location-share-form" data-field-ops-form>
+              <label>
+                Purpose
+                <input name="label" type="text" maxlength="200" placeholder="Why you're sharing" required />
+              </label>
+              <label>
+                Auto-expire after
+                <select name="minutes">
+                  <option value="15">15 minutes</option>
+                  <option value="30" selected>30 minutes</option>
+                  <option value="60">1 hour</option>
+                  <option value="120">2 hours</option>
+                  <option value="240">4 hours</option>
+                </select>
+              </label>
+              <label>
+                Precision
+                <select name="precision">
+                  <option value="approx">Approximate</option>
+                  <option value="exact">Exact</option>
+                </select>
+              </label>
+              <label>
+                Linked mission (optional)
+                <select name="missionId"></select>
+              </label>
+              <div class="field-ops-coord-row">
+                <input name="latitude" type="text" inputmode="decimal" placeholder="Latitude" aria-label="Latitude" />
+                <input name="longitude" type="text" inputmode="decimal" placeholder="Longitude" aria-label="Longitude" />
+                <button class="secondary-button compact-button" type="button" data-use-current-location>Use current</button>
+              </div>
+              <button class="primary-button" type="submit">Start share</button>
+              <p class="field-ops-status" data-form-status role="status" aria-live="polite"></p>
+            </form>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./data.js?v=20260709pogo"></script>
+    <script src="./config.js?v=20260709pogo"></script>
+    <script src="./browser-app.js?v=20260709pogo"></script>
+  </body>
+</html>

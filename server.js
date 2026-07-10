@@ -110,6 +110,7 @@ const PAGE_ROUTES = [
   { htmlPath: "/training.html", routePath: "/training", access: "public" },
   { htmlPath: "/reporting.html", routePath: "/reporting", access: "public" },
   { htmlPath: "/leaderboard.html", routePath: "/leaderboard", access: "public" },
+  { htmlPath: "/safety.html", routePath: "/safety", access: "protected" },
   { htmlPath: "/roadmap.html", routePath: "/roadmap", access: "public" },
   { htmlPath: "/account.html", routePath: "/account", access: "protected" },
   { htmlPath: "/admin.html", routePath: "/admin", access: "admin" }
@@ -913,10 +914,32 @@ function sendRedirect(response, location) {
   response.end();
 }
 
+// Content-Security-Policy. script-src is strict ('self' + the single jsdelivr
+// CDN the static-hosting path loads supabase-js from) because the app has no
+// inline <script> blocks or on*= handlers. style-src keeps 'unsafe-inline'
+// because rendered cards set inline styles.
+// ponytail: style 'unsafe-inline' is the known ceiling; move to nonce/hashed
+// styles if a stricter style policy is ever required.
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "img-src 'self' data: blob: https://*.supabase.co",
+  "font-src 'self' https://fonts.gstatic.com",
+  "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'",
+  "script-src 'self' https://cdn.jsdelivr.net",
+  "connect-src 'self' https://*.supabase.co wss://*.supabase.co"
+].join("; ");
+
 function setSecurityHeaders(response) {
   response.setHeader("X-Content-Type-Options", "nosniff");
   response.setHeader("X-Frame-Options", "DENY");
   response.setHeader("Referrer-Policy", "same-origin");
+  response.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  response.setHeader("Permissions-Policy", "geolocation=(self), camera=(), microphone=()");
+  response.setHeader("Cross-Origin-Opener-Policy", "same-origin");
 }
 
 async function parseBody(request) {
@@ -3029,6 +3052,561 @@ async function handleDashboardStatsGet(response) {
   sendJson(response, 200, { stats });
 }
 
+// ===========================================================================
+// Field operations tooling (Weeks 5-6): account linking, evidence vault,
+// safety events, location sharing. Safety-critical actions here are recorded
+// for coordination only — the app never contacts law enforcement or emergency
+// services on a user's behalf; UI copy marks those actions as simulated.
+// ===========================================================================
+
+const LINK_PLATFORMS = new Set(["discord", "instagram", "snapchat", "roblox", "other"]);
+const LINK_CONSENT_SCOPES = new Set(["message_logging", "red_flag_alerts", "profile_metadata"]);
+const EVIDENCE_KINDS = new Set(["photo", "video", "audio", "screenshot", "note", "other"]);
+const EVIDENCE_SENSITIVITY = new Set(["standard", "sensitive", "le_only"]);
+const EVIDENCE_STATUSES = new Set(["sealed", "open", "exported"]);
+const CUSTODY_ACTIONS = new Set(["created", "viewed", "transferred", "sealed", "exported", "note_added"]);
+const SAFETY_TYPES = new Set(["check_in", "panic", "backup"]);
+const SAFETY_STATUSES = new Set(["active", "acknowledged", "resolved"]);
+const LOCATION_PRECISION = new Set(["approx", "exact"]);
+const LOCATION_SHARE_MIN_MINUTES = 5;
+const LOCATION_SHARE_MAX_MINUTES = 240;
+
+function sanitizeScopeList(value) {
+  const raw = Array.isArray(value) ? value : [];
+  return [...new Set(raw.map((item) => String(item || "").trim()).filter((item) => LINK_CONSENT_SCOPES.has(item)))];
+}
+
+function mapLinkedAccountRecord(record) {
+  if (!record) {
+    return null;
+  }
+  return {
+    id: record.id,
+    userId: record.user_id,
+    platform: record.platform,
+    handle: record.handle || "",
+    consentScopes: Array.isArray(record.consent_scopes) ? record.consent_scopes : [],
+    status: record.status,
+    linkedAt: record.linked_at,
+    revokedAt: record.revoked_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function mapEvidenceItemRecord(record) {
+  if (!record) {
+    return null;
+  }
+  return {
+    id: record.id,
+    userId: record.user_id,
+    reportId: record.report_id,
+    missionId: record.mission_id,
+    kind: record.kind,
+    label: record.label || "",
+    notes: record.notes || "",
+    storageRef: record.storage_ref || "",
+    sensitivity: record.sensitivity,
+    status: record.status,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at,
+    custodyEvents: []
+  };
+}
+
+function mapCustodyEventRecord(record) {
+  if (!record) {
+    return null;
+  }
+  return {
+    id: record.id,
+    evidenceId: record.evidence_id,
+    actorId: record.actor_id,
+    action: record.action,
+    detail: record.detail || "",
+    createdAt: record.created_at
+  };
+}
+
+function mapSafetyEventRecord(record) {
+  if (!record) {
+    return null;
+  }
+  return {
+    id: record.id,
+    userId: record.user_id,
+    missionId: record.mission_id,
+    type: record.type,
+    status: record.status,
+    message: record.message || "",
+    locationLabel: record.location_label || "",
+    acknowledgedBy: record.acknowledged_by,
+    acknowledgedAt: record.acknowledged_at,
+    resolvedAt: record.resolved_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+function mapLocationShareRecord(record) {
+  if (!record) {
+    return null;
+  }
+  return {
+    id: record.id,
+    userId: record.user_id,
+    missionId: record.mission_id,
+    label: record.label || "",
+    latitude: record.latitude,
+    longitude: record.longitude,
+    precision: record.precision,
+    status: record.status,
+    expiresAt: record.expires_at,
+    createdAt: record.created_at,
+    updatedAt: record.updated_at
+  };
+}
+
+// --- Supabase helpers -------------------------------------------------------
+async function supabaseListLinkedAccounts(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("linked_accounts")
+    .select("*")
+    .eq("user_id", userId)
+    .order("platform", { ascending: true });
+  throwIfSupabaseError(error, "Unable to load linked accounts.");
+  return data.map(mapLinkedAccountRecord);
+}
+
+async function supabaseUpsertLinkedAccount(record) {
+  const { data, error } = await supabaseAdmin
+    .from("linked_accounts")
+    .upsert(record, { onConflict: "user_id,platform" })
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to link the account.");
+  return mapLinkedAccountRecord(data);
+}
+
+async function supabasePatchLinkedAccount(id, updates) {
+  const { data, error } = await supabaseAdmin
+    .from("linked_accounts")
+    .update(updates)
+    .eq("id", id)
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to update the linked account.");
+  return mapLinkedAccountRecord(data);
+}
+
+async function supabaseGetLinkedAccountById(id) {
+  const { data, error } = await supabaseAdmin
+    .from("linked_accounts")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Unable to load the linked account.");
+  return mapLinkedAccountRecord(data);
+}
+
+async function supabaseListEvidence(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("evidence_items")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  throwIfSupabaseError(error, "Unable to load evidence.");
+  return data.map(mapEvidenceItemRecord);
+}
+
+async function supabaseGetEvidenceById(id) {
+  const { data, error } = await supabaseAdmin
+    .from("evidence_items")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Unable to load the evidence item.");
+  return mapEvidenceItemRecord(data);
+}
+
+async function supabaseCreateEvidence(record) {
+  const { data, error } = await supabaseAdmin.from("evidence_items").insert(record).select("*").single();
+  throwIfSupabaseError(error, "Unable to save the evidence item.");
+  return mapEvidenceItemRecord(data);
+}
+
+async function supabasePatchEvidence(id, updates) {
+  const { data, error } = await supabaseAdmin
+    .from("evidence_items")
+    .update(updates)
+    .eq("id", id)
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to update the evidence item.");
+  return mapEvidenceItemRecord(data);
+}
+
+async function supabaseListCustodyEventsForUser(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("evidence_custody_events")
+    .select("*, evidence_items!inner(user_id)")
+    .eq("evidence_items.user_id", userId)
+    .order("created_at", { ascending: true });
+  throwIfSupabaseError(error, "Unable to load chain-of-custody events.");
+  return data.map(mapCustodyEventRecord);
+}
+
+async function supabaseCreateCustodyEvent(record) {
+  const { data, error } = await supabaseAdmin
+    .from("evidence_custody_events")
+    .insert(record)
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to record the chain-of-custody event.");
+  return mapCustodyEventRecord(data);
+}
+
+async function supabaseListSafetyEvents(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("safety_events")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  throwIfSupabaseError(error, "Unable to load safety events.");
+  return data.map(mapSafetyEventRecord);
+}
+
+async function supabaseGetSafetyEventById(id) {
+  const { data, error } = await supabaseAdmin
+    .from("safety_events")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Unable to load the safety event.");
+  return mapSafetyEventRecord(data);
+}
+
+async function supabaseCreateSafetyEvent(record) {
+  const { data, error } = await supabaseAdmin.from("safety_events").insert(record).select("*").single();
+  throwIfSupabaseError(error, "Unable to record the safety event.");
+  return mapSafetyEventRecord(data);
+}
+
+async function supabasePatchSafetyEvent(id, updates) {
+  const { data, error } = await supabaseAdmin
+    .from("safety_events")
+    .update(updates)
+    .eq("id", id)
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to update the safety event.");
+  return mapSafetyEventRecord(data);
+}
+
+async function supabaseListLocationShares(userId) {
+  const { data, error } = await supabaseAdmin
+    .from("location_shares")
+    .select("*")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false });
+  throwIfSupabaseError(error, "Unable to load location shares.");
+  return data.map(mapLocationShareRecord);
+}
+
+async function supabaseGetLocationShareById(id) {
+  const { data, error } = await supabaseAdmin
+    .from("location_shares")
+    .select("*")
+    .eq("id", id)
+    .maybeSingle();
+  throwIfSupabaseError(error, "Unable to load the location share.");
+  return mapLocationShareRecord(data);
+}
+
+async function supabaseCreateLocationShare(record) {
+  const { data, error } = await supabaseAdmin.from("location_shares").insert(record).select("*").single();
+  throwIfSupabaseError(error, "Unable to start the location share.");
+  return mapLocationShareRecord(data);
+}
+
+async function supabasePatchLocationShare(id, updates) {
+  const { data, error } = await supabaseAdmin
+    .from("location_shares")
+    .update(updates)
+    .eq("id", id)
+    .select("*")
+    .single();
+  throwIfSupabaseError(error, "Unable to update the location share.");
+  return mapLocationShareRecord(data);
+}
+
+// --- Data layer -------------------------------------------------------------
+async function listLinkedAccounts(user) {
+  return supabaseListLinkedAccounts(user.id);
+}
+
+async function linkAccount(user, body) {
+  const platform = String(body.platform || "").trim().toLowerCase();
+  if (!LINK_PLATFORMS.has(platform)) {
+    throw new Error("Choose a supported platform to link.");
+  }
+  const handle = sanitizeMissionText(body.handle, 120, "");
+  if (!handle) {
+    throw new Error("Enter the account handle you are linking.");
+  }
+  const consentScopes = sanitizeScopeList(body.consentScopes);
+  if (!consentScopes.length) {
+    throw new Error("Select at least one consent scope before linking.");
+  }
+  return supabaseUpsertLinkedAccount({
+    user_id: user.id,
+    platform,
+    handle,
+    consent_scopes: consentScopes,
+    status: "linked",
+    linked_at: new Date().toISOString(),
+    revoked_at: null
+  });
+}
+
+async function revokeLinkedAccount(user, id) {
+  const existing = await supabaseGetLinkedAccountById(id);
+  if (!existing || existing.userId !== user.id) {
+    throw new Error("Linked account not found.");
+  }
+  return supabasePatchLinkedAccount(id, { status: "revoked", revoked_at: new Date().toISOString() });
+}
+
+async function listEvidence(user) {
+  const [items, events] = await Promise.all([
+    supabaseListEvidence(user.id),
+    supabaseListCustodyEventsForUser(user.id)
+  ]);
+  const eventsByItem = new Map();
+  events.forEach((event) => {
+    if (!eventsByItem.has(event.evidenceId)) {
+      eventsByItem.set(event.evidenceId, []);
+    }
+    eventsByItem.get(event.evidenceId).push(event);
+  });
+  return items.map((item) => ({ ...item, custodyEvents: eventsByItem.get(item.id) || [] }));
+}
+
+async function createEvidence(user, body) {
+  const kind = String(body.kind || "note").trim().toLowerCase();
+  if (!EVIDENCE_KINDS.has(kind)) {
+    throw new Error("Choose a valid evidence type.");
+  }
+  const label = sanitizeMissionText(body.label, 200, "");
+  if (!label) {
+    throw new Error("Give the evidence item a short label.");
+  }
+  const sensitivity = EVIDENCE_SENSITIVITY.has(String(body.sensitivity || "").trim())
+    ? String(body.sensitivity).trim()
+    : "standard";
+  const missionId = body.missionId ? sanitizeMissionText(body.missionId, 80, "") : null;
+  if (missionId) {
+    const mission = await getMissionCatalogEntryById(missionId);
+    if (!mission) {
+      throw new Error("Linked mission not found.");
+    }
+  }
+  const item = await supabaseCreateEvidence({
+    user_id: user.id,
+    mission_id: missionId,
+    kind,
+    label,
+    notes: sanitizeMissionText(body.notes, 4000, ""),
+    storage_ref: sanitizeMissionText(body.storageRef, 400, ""),
+    sensitivity,
+    status: "sealed"
+  });
+  await supabaseCreateCustodyEvent({
+    evidence_id: item.id,
+    actor_id: user.id,
+    action: "created",
+    detail: "Item logged and sealed in the evidence vault."
+  });
+  const events = await supabaseListCustodyEventsForUser(user.id);
+  return { ...item, custodyEvents: events.filter((event) => event.evidenceId === item.id) };
+}
+
+async function addCustodyEvent(user, evidenceId, body) {
+  const existing = await supabaseGetEvidenceById(evidenceId);
+  if (!existing || existing.userId !== user.id) {
+    throw new Error("Evidence item not found.");
+  }
+  const action = String(body.action || "").trim();
+  if (!CUSTODY_ACTIONS.has(action)) {
+    throw new Error("Choose a valid chain-of-custody action.");
+  }
+  await supabaseCreateCustodyEvent({
+    evidence_id: evidenceId,
+    actor_id: user.id,
+    action,
+    detail: sanitizeMissionText(body.detail, 600, "")
+  });
+  if (action === "sealed" || action === "exported") {
+    await supabasePatchEvidence(evidenceId, { status: action === "exported" ? "exported" : "sealed" });
+  }
+  const [item, events] = await Promise.all([
+    supabaseGetEvidenceById(evidenceId),
+    supabaseListCustodyEventsForUser(user.id)
+  ]);
+  return { ...item, custodyEvents: events.filter((event) => event.evidenceId === evidenceId) };
+}
+
+async function listSafetyEvents(user) {
+  return supabaseListSafetyEvents(user.id);
+}
+
+async function createSafetyEvent(user, body) {
+  const type = String(body.type || "").trim();
+  if (!SAFETY_TYPES.has(type)) {
+    throw new Error("Choose a valid safety action.");
+  }
+  const missionId = body.missionId ? sanitizeMissionText(body.missionId, 80, "") : null;
+  return supabaseCreateSafetyEvent({
+    user_id: user.id,
+    mission_id: missionId,
+    type,
+    status: "active",
+    message: sanitizeMissionText(body.message, 600, ""),
+    location_label: sanitizeMissionText(body.locationLabel, 200, "")
+  });
+}
+
+async function updateSafetyEvent(user, id, body) {
+  const existing = await supabaseGetSafetyEventById(id);
+  if (!existing || existing.userId !== user.id) {
+    throw new Error("Safety event not found.");
+  }
+  const status = String(body.status || "").trim();
+  if (!SAFETY_STATUSES.has(status)) {
+    throw new Error("Safety status must be active, acknowledged, or resolved.");
+  }
+  const patch = { status };
+  if (status === "acknowledged") {
+    patch.acknowledged_by = user.id;
+    patch.acknowledged_at = new Date().toISOString();
+  }
+  if (status === "resolved") {
+    patch.resolved_at = new Date().toISOString();
+  }
+  return supabasePatchSafetyEvent(id, patch);
+}
+
+function withComputedShareStatus(share) {
+  // ponytail: expiry computed on read; no cron sweeper. A background job can
+  // persist "expired" later if the table grows, but correctness lives here.
+  if (share.status === "active" && new Date(share.expiresAt).getTime() <= Date.now()) {
+    return { ...share, status: "expired" };
+  }
+  return share;
+}
+
+async function listLocationShares(user) {
+  const shares = await supabaseListLocationShares(user.id);
+  return shares.map(withComputedShareStatus);
+}
+
+async function createLocationShare(user, body) {
+  const label = sanitizeMissionText(body.label, 200, "");
+  if (!label) {
+    throw new Error("Describe what this location share is for.");
+  }
+  const minutesRaw = Number(body.minutes);
+  const minutes = Number.isFinite(minutesRaw)
+    ? Math.min(LOCATION_SHARE_MAX_MINUTES, Math.max(LOCATION_SHARE_MIN_MINUTES, Math.round(minutesRaw)))
+    : 30;
+  const precision = LOCATION_PRECISION.has(String(body.precision || "").trim())
+    ? String(body.precision).trim()
+    : "approx";
+  const latitude = Number.isFinite(Number(body.latitude)) ? Number(body.latitude) : null;
+  const longitude = Number.isFinite(Number(body.longitude)) ? Number(body.longitude) : null;
+  const missionId = body.missionId ? sanitizeMissionText(body.missionId, 80, "") : null;
+  return supabaseCreateLocationShare({
+    user_id: user.id,
+    mission_id: missionId,
+    label,
+    latitude,
+    longitude,
+    precision,
+    status: "active",
+    expires_at: new Date(Date.now() + minutes * 60 * 1000).toISOString()
+  });
+}
+
+async function revokeLocationShare(user, id) {
+  const existing = await supabaseGetLocationShareById(id);
+  if (!existing || existing.userId !== user.id) {
+    throw new Error("Location share not found.");
+  }
+  return withComputedShareStatus(await supabasePatchLocationShare(id, { status: "revoked" }));
+}
+
+// --- Handlers ---------------------------------------------------------------
+async function handleLinkedAccountsList(response, user) {
+  const accounts = user ? await listLinkedAccounts(user) : [];
+  sendJson(response, 200, { accounts });
+}
+
+async function handleLinkAccount(request, response, user) {
+  const account = await linkAccount(user, await parseBody(request));
+  sendJson(response, 201, { account });
+}
+
+async function handleRevokeLinkedAccount(response, user, id) {
+  const account = await revokeLinkedAccount(user, id);
+  sendJson(response, 200, { account });
+}
+
+async function handleEvidenceList(response, user) {
+  const evidence = user ? await listEvidence(user) : [];
+  sendJson(response, 200, { evidence });
+}
+
+async function handleEvidenceCreate(request, response, user) {
+  const item = await createEvidence(user, await parseBody(request));
+  sendJson(response, 201, { item });
+}
+
+async function handleCustodyEventCreate(request, response, user, evidenceId) {
+  const item = await addCustodyEvent(user, evidenceId, await parseBody(request));
+  sendJson(response, 201, { item });
+}
+
+async function handleSafetyEventsList(response, user) {
+  const events = user ? await listSafetyEvents(user) : [];
+  sendJson(response, 200, { events });
+}
+
+async function handleSafetyEventCreate(request, response, user) {
+  const event = await createSafetyEvent(user, await parseBody(request));
+  sendJson(response, 201, { event });
+}
+
+async function handleSafetyEventUpdate(request, response, user, id) {
+  const event = await updateSafetyEvent(user, id, await parseBody(request));
+  sendJson(response, 200, { event });
+}
+
+async function handleLocationSharesList(response, user) {
+  const shares = user ? await listLocationShares(user) : [];
+  sendJson(response, 200, { shares });
+}
+
+async function handleLocationShareCreate(request, response, user) {
+  const share = await createLocationShare(user, await parseBody(request));
+  sendJson(response, 201, { share });
+}
+
+async function handleLocationShareRevoke(response, user, id) {
+  const share = await revokeLocationShare(user, id);
+  sendJson(response, 200, { share });
+}
+
 async function handleApi(request, response, urlPath) {
   if (urlPath === "/api/auth/session" && request.method === "GET") {
     const user = await getSessionUser(request);
@@ -3374,6 +3952,99 @@ async function handleApi(request, response, urlPath) {
   if (urlPath === "/api/dashboard/stats" && request.method === "GET") {
     // ponytail: dashboard stats are global/aggregate data, no account needed to view.
     await handleDashboardStatsGet(response);
+    return;
+  }
+
+  // --- Field operations tooling (linking, evidence, safety, location) ---
+  if (urlPath === "/api/linked-accounts" && request.method === "GET") {
+    await handleLinkedAccountsList(response, await getSessionUser(request));
+    return;
+  }
+
+  if (urlPath === "/api/linked-accounts" && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleLinkAccount(request, response, user);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/linked-accounts/") && request.method === "DELETE") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleRevokeLinkedAccount(response, user, urlPath.split("/").pop());
+    return;
+  }
+
+  if (urlPath === "/api/evidence" && request.method === "GET") {
+    await handleEvidenceList(response, await getSessionUser(request));
+    return;
+  }
+
+  if (urlPath === "/api/evidence" && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleEvidenceCreate(request, response, user);
+    return;
+  }
+
+  if (urlPath.match(/^\/api\/evidence\/[^/]+\/custody$/u) && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleCustodyEventCreate(request, response, user, urlPath.split("/")[3]);
+    return;
+  }
+
+  if (urlPath === "/api/safety-events" && request.method === "GET") {
+    await handleSafetyEventsList(response, await getSessionUser(request));
+    return;
+  }
+
+  if (urlPath === "/api/safety-events" && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleSafetyEventCreate(request, response, user);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/safety-events/") && request.method === "PATCH") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleSafetyEventUpdate(request, response, user, urlPath.split("/").pop());
+    return;
+  }
+
+  if (urlPath === "/api/location-shares" && request.method === "GET") {
+    await handleLocationSharesList(response, await getSessionUser(request));
+    return;
+  }
+
+  if (urlPath === "/api/location-shares" && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleLocationShareCreate(request, response, user);
+    return;
+  }
+
+  if (urlPath.startsWith("/api/location-shares/") && request.method === "DELETE") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+    await handleLocationShareRevoke(response, user, urlPath.split("/").pop());
     return;
   }
 

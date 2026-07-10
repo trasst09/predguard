@@ -9,6 +9,7 @@ const PAGE_CONFIG = {
   training: { routePath: "/training", legacyPath: "/training.html" },
   reporting: { routePath: "/reporting", legacyPath: "/reporting.html" },
   leaderboard: { routePath: "/leaderboard", legacyPath: "/leaderboard.html" },
+  safety: { routePath: "/safety", legacyPath: "/safety.html" },
   roadmap: { routePath: "/roadmap", legacyPath: "/roadmap.html" },
   account: { routePath: "/account", legacyPath: "/account.html" },
   admin: { routePath: "/admin", legacyPath: "/admin.html" }
@@ -18,7 +19,7 @@ const ADMIN_ONLY_PAGE_KEYS = new Set(["admin"]);
 // ponytail: pages that still require sign-in to view at all; everything else
 // (dashboard/missions/map/training/reporting/leaderboard/roadmap) is browsable
 // as a guest, with quest actions and mission chat hidden client-side.
-const SIGN_IN_REQUIRED_PAGE_KEYS = new Set(["account", "onboarding", "admin"]);
+const SIGN_IN_REQUIRED_PAGE_KEYS = new Set(["account", "onboarding", "admin", "safety"]);
 const LEGACY_PAGE_LOOKUP = new Map(
   Object.values(PAGE_CONFIG).map((config) => [config.legacyPath, config.routePath])
 );
@@ -2230,11 +2231,16 @@ function createNav() {
     });
   }
 
+  nav.setAttribute("aria-label", "Primary");
   links.forEach((link) => {
     const anchor = document.createElement("a");
     anchor.href = getPageUrl(link.href);
     anchor.textContent = link.title;
-    anchor.className = currentPage === link.title.toLowerCase() ? "nav-link active" : "nav-link";
+    const isActive = currentPage === link.title.toLowerCase().replace(/\s+/u, "-");
+    anchor.className = isActive ? "nav-link active" : "nav-link";
+    if (isActive) {
+      anchor.setAttribute("aria-current", "page");
+    }
     nav.appendChild(anchor);
   });
 }
@@ -6105,7 +6111,572 @@ async function initAdminPage() {
   renderAdminReportList();
 }
 
+// ===========================================================================
+// Field operations tooling page (/safety): consent-based account linking,
+// evidence vault with chain-of-custody, safety events, and location sharing.
+// Safety-critical actions are simulated and clearly labelled — the app never
+// contacts emergency services or law enforcement on a user's behalf.
+// ===========================================================================
+
+const FIELD_OPS_PLATFORMS = [
+  { value: "discord", label: "Discord" },
+  { value: "instagram", label: "Instagram" },
+  { value: "snapchat", label: "Snapchat" },
+  { value: "roblox", label: "Roblox" },
+  { value: "other", label: "Other platform" }
+];
+const FIELD_OPS_CONSENT_SCOPES = [
+  { value: "message_logging", label: "Message logging" },
+  { value: "red_flag_alerts", label: "Red-flag alerts" },
+  { value: "profile_metadata", label: "Profile metadata" }
+];
+const FIELD_OPS_EVIDENCE_KINDS = [
+  { value: "screenshot", label: "Screenshot" },
+  { value: "photo", label: "Photo" },
+  { value: "video", label: "Video" },
+  { value: "audio", label: "Audio" },
+  { value: "note", label: "Note" },
+  { value: "other", label: "Other" }
+];
+const FIELD_OPS_CUSTODY_ACTIONS = [
+  { value: "viewed", label: "Logged a review" },
+  { value: "note_added", label: "Added a note" },
+  { value: "transferred", label: "Recorded a transfer" },
+  { value: "sealed", label: "Re-sealed" },
+  { value: "exported", label: "Marked exported to LE" }
+];
+
+function fieldOpsDate(value) {
+  if (!value) {
+    return "—";
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "—" : date.toLocaleString();
+}
+
+function fieldOpsMissionOptions() {
+  return missionCatalog
+    .map((mission) => `<option value="${escapeHtml(mission.id)}">${escapeHtml(mission.title)}</option>`)
+    .join("");
+}
+
+function fieldOpsNotice(message) {
+  return `<p class="field-ops-empty">${escapeHtml(message)}</p>`;
+}
+
+async function renderFieldOps() {
+  if (currentPage !== "safety") {
+    return;
+  }
+
+  const root = document.getElementById("field-ops-root");
+  if (!root) {
+    return;
+  }
+
+  if ((await getAuthTransport()) === "browser") {
+    root
+      .querySelectorAll("[data-field-ops-list]")
+      .forEach((node) => {
+        node.innerHTML = fieldOpsNotice(
+          "Field operations tooling runs through the secure server backend and is not available on static hosting."
+        );
+      });
+    root.querySelectorAll("[data-field-ops-form], [data-field-ops-controls]").forEach((node) => {
+      node.setAttribute("hidden", "hidden");
+    });
+    return;
+  }
+
+  await Promise.all([
+    renderLinkedAccounts(),
+    renderEvidenceVault(),
+    renderSafetyEvents(),
+    renderLocationShares()
+  ]);
+
+  wireLinkedAccountForm();
+  wireEvidenceForm();
+  wireSafetyControls();
+  wireLocationShareForm();
+}
+
+async function renderLinkedAccounts() {
+  const list = document.getElementById("linked-accounts-list");
+  if (!list) {
+    return;
+  }
+  let accounts = [];
+  try {
+    const payload = await requestJson("/api/linked-accounts", { method: "GET" });
+    accounts = Array.isArray(payload.accounts) ? payload.accounts : [];
+  } catch (error) {
+    list.innerHTML = fieldOpsNotice("Linked accounts are unavailable right now.");
+    return;
+  }
+
+  if (!accounts.length) {
+    list.innerHTML = fieldOpsNotice("No platforms linked yet. Link an account with explicit consent scopes below.");
+    return;
+  }
+
+  list.innerHTML = accounts
+    .map((account) => {
+      const platform = FIELD_OPS_PLATFORMS.find((item) => item.value === account.platform);
+      const scopes = account.consentScopes
+        .map((scope) => {
+          const meta = FIELD_OPS_CONSENT_SCOPES.find((item) => item.value === scope);
+          return `<span class="chip">${escapeHtml(meta ? meta.label : scope)}</span>`;
+        })
+        .join("");
+      const revoked = account.status === "revoked";
+      return `
+        <article class="field-ops-card${revoked ? " is-muted" : ""}">
+          <div class="field-ops-card-head">
+            <div>
+              <strong>${escapeHtml(platform ? platform.label : account.platform)}</strong>
+              <span>${escapeHtml(account.handle)}</span>
+            </div>
+            <span class="status-chip status-${revoked ? "muted" : "ok"}">${revoked ? "Revoked" : "Linked"}</span>
+          </div>
+          <div class="field-ops-chip-row">${scopes || '<span class="chip">No scopes</span>'}</div>
+          <p class="field-ops-meta">Linked ${escapeHtml(fieldOpsDate(account.linkedAt))}</p>
+          ${
+            revoked
+              ? ""
+              : `<button class="secondary-button compact-button" type="button" data-revoke-account="${escapeHtml(
+                  account.id
+                )}">Revoke consent</button>`
+          }
+        </article>`;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-revoke-account]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await requestJson(`/api/linked-accounts/${button.dataset.revokeAccount}`, { method: "DELETE" });
+        await renderLinkedAccounts();
+      } catch (error) {
+        button.disabled = false;
+        window.alert(error.message || "Unable to revoke the linked account.");
+      }
+    });
+  });
+}
+
+function wireLinkedAccountForm() {
+  const form = document.getElementById("link-account-form");
+  if (!form || form.dataset.wired === "true") {
+    return;
+  }
+  form.dataset.wired = "true";
+
+  const platformSelect = form.querySelector('[name="platform"]');
+  if (platformSelect && !platformSelect.options.length) {
+    platformSelect.innerHTML = FIELD_OPS_PLATFORMS.map(
+      (item) => `<option value="${item.value}">${item.label}</option>`
+    ).join("");
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const consentScopes = FIELD_OPS_CONSENT_SCOPES.map((scope) => scope.value).filter((scope) =>
+      data.getAll("consentScopes").includes(scope)
+    );
+    const status = form.querySelector("[data-form-status]");
+    try {
+      await requestJson("/api/linked-accounts", {
+        method: "POST",
+        body: JSON.stringify({
+          platform: data.get("platform"),
+          handle: data.get("handle"),
+          consentScopes
+        })
+      });
+      form.reset();
+      if (status) {
+        status.textContent = "Account linked with the selected consent scopes.";
+      }
+      await renderLinkedAccounts();
+    } catch (error) {
+      if (status) {
+        status.textContent = error.message || "Unable to link the account.";
+      }
+    }
+  });
+}
+
+async function renderEvidenceVault() {
+  const list = document.getElementById("evidence-list");
+  if (!list) {
+    return;
+  }
+  let evidence = [];
+  try {
+    const payload = await requestJson("/api/evidence", { method: "GET" });
+    evidence = Array.isArray(payload.evidence) ? payload.evidence : [];
+  } catch (error) {
+    list.innerHTML = fieldOpsNotice("The evidence vault is unavailable right now.");
+    return;
+  }
+
+  if (!evidence.length) {
+    list.innerHTML = fieldOpsNotice("No evidence logged yet. Sealed items build a chain-of-custody trail.");
+    return;
+  }
+
+  list.innerHTML = evidence
+    .map((item) => {
+      const custody = item.custodyEvents
+        .map(
+          (event) =>
+            `<li><span>${escapeHtml(event.action.replaceAll("_", " "))}</span><time>${escapeHtml(
+              fieldOpsDate(event.createdAt)
+            )}</time>${event.detail ? `<p>${escapeHtml(event.detail)}</p>` : ""}</li>`
+        )
+        .join("");
+      return `
+        <article class="field-ops-card">
+          <div class="field-ops-card-head">
+            <div>
+              <strong>${escapeHtml(item.label)}</strong>
+              <span>${escapeHtml(item.kind)} · ${escapeHtml(item.sensitivity.replaceAll("_", " "))}</span>
+            </div>
+            <span class="status-chip status-${item.status === "exported" ? "muted" : "ok"}">${escapeHtml(
+              item.status
+            )}</span>
+          </div>
+          ${item.notes ? `<p class="field-ops-meta">${escapeHtml(item.notes)}</p>` : ""}
+          <ol class="field-ops-custody">${custody}</ol>
+          <form class="field-ops-inline-form" data-custody-form="${escapeHtml(item.id)}">
+            <select name="action" aria-label="Chain-of-custody action">
+              ${FIELD_OPS_CUSTODY_ACTIONS.map(
+                (action) => `<option value="${action.value}">${action.label}</option>`
+              ).join("")}
+            </select>
+            <input name="detail" type="text" maxlength="600" placeholder="Optional detail" />
+            <button class="secondary-button compact-button" type="submit">Add event</button>
+          </form>
+        </article>`;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-custody-form]").forEach((form) => {
+    form.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const data = new FormData(form);
+      try {
+        await requestJson(`/api/evidence/${form.dataset.custodyForm}/custody`, {
+          method: "POST",
+          body: JSON.stringify({ action: data.get("action"), detail: data.get("detail") })
+        });
+        await renderEvidenceVault();
+      } catch (error) {
+        window.alert(error.message || "Unable to record the custody event.");
+      }
+    });
+  });
+}
+
+function wireEvidenceForm() {
+  const form = document.getElementById("evidence-form");
+  if (!form || form.dataset.wired === "true") {
+    return;
+  }
+  form.dataset.wired = "true";
+
+  const missionSelect = form.querySelector('[name="missionId"]');
+  if (missionSelect) {
+    missionSelect.innerHTML = `<option value="">No linked mission</option>${fieldOpsMissionOptions()}`;
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const status = form.querySelector("[data-form-status]");
+    try {
+      await requestJson("/api/evidence", {
+        method: "POST",
+        body: JSON.stringify({
+          kind: data.get("kind"),
+          label: data.get("label"),
+          notes: data.get("notes"),
+          storageRef: data.get("storageRef"),
+          sensitivity: data.get("sensitivity"),
+          missionId: data.get("missionId") || null
+        })
+      });
+      form.reset();
+      if (missionSelect) {
+        missionSelect.innerHTML = `<option value="">No linked mission</option>${fieldOpsMissionOptions()}`;
+      }
+      if (status) {
+        status.textContent = "Evidence sealed and logged to the chain-of-custody trail.";
+      }
+      await renderEvidenceVault();
+    } catch (error) {
+      if (status) {
+        status.textContent = error.message || "Unable to save the evidence item.";
+      }
+    }
+  });
+}
+
+async function renderSafetyEvents() {
+  const list = document.getElementById("safety-events-list");
+  if (!list) {
+    return;
+  }
+  let events = [];
+  try {
+    const payload = await requestJson("/api/safety-events", { method: "GET" });
+    events = Array.isArray(payload.events) ? payload.events : [];
+  } catch (error) {
+    list.innerHTML = fieldOpsNotice("Safety events are unavailable right now.");
+    return;
+  }
+
+  if (!events.length) {
+    list.innerHTML = fieldOpsNotice("No safety events yet. Use the controls above during an active mission.");
+    return;
+  }
+
+  const typeLabels = { check_in: "Check-in", panic: "Panic escalation", backup: "Backup request" };
+  list.innerHTML = events
+    .map((event) => {
+      const active = event.status === "active";
+      return `
+        <article class="field-ops-card field-ops-safety-${event.type}${active ? " is-active" : ""}">
+          <div class="field-ops-card-head">
+            <div>
+              <strong>${escapeHtml(typeLabels[event.type] || event.type)}</strong>
+              <span>${escapeHtml(fieldOpsDate(event.createdAt))}</span>
+            </div>
+            <span class="status-chip status-${active ? "alert" : "ok"}">${escapeHtml(event.status)}</span>
+          </div>
+          ${event.message ? `<p class="field-ops-meta">${escapeHtml(event.message)}</p>` : ""}
+          ${event.locationLabel ? `<p class="field-ops-meta">Location: ${escapeHtml(event.locationLabel)}</p>` : ""}
+          ${
+            event.status === "resolved"
+              ? ""
+              : `<div class="field-ops-inline-actions">
+                  ${
+                    event.status === "active"
+                      ? `<button class="secondary-button compact-button" type="button" data-safety-status="acknowledged" data-safety-id="${escapeHtml(
+                          event.id
+                        )}">Acknowledge</button>`
+                      : ""
+                  }
+                  <button class="secondary-button compact-button" type="button" data-safety-status="resolved" data-safety-id="${escapeHtml(
+                    event.id
+                  )}">Resolve</button>
+                </div>`
+          }
+        </article>`;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-safety-id]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await requestJson(`/api/safety-events/${button.dataset.safetyId}`, {
+          method: "PATCH",
+          body: JSON.stringify({ status: button.dataset.safetyStatus })
+        });
+        await renderSafetyEvents();
+      } catch (error) {
+        button.disabled = false;
+        window.alert(error.message || "Unable to update the safety event.");
+      }
+    });
+  });
+}
+
+function wireSafetyControls() {
+  const controls = document.getElementById("safety-controls");
+  if (!controls || controls.dataset.wired === "true") {
+    return;
+  }
+  controls.dataset.wired = "true";
+
+  controls.querySelectorAll("[data-safety-trigger]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const type = button.dataset.safetyTrigger;
+      if (type === "panic") {
+        const proceed = window.confirm(
+          "This logs a simulated panic escalation to your mission team inside PredatorGuard. It does NOT contact 911 or law enforcement. For a real emergency, call 911. Continue?"
+        );
+        if (!proceed) {
+          return;
+        }
+      }
+      const messageField = controls.querySelector('[name="message"]');
+      const locationField = controls.querySelector('[name="locationLabel"]');
+      button.disabled = true;
+      try {
+        await requestJson("/api/safety-events", {
+          method: "POST",
+          body: JSON.stringify({
+            type,
+            message: messageField ? messageField.value : "",
+            locationLabel: locationField ? locationField.value : ""
+          })
+        });
+        if (messageField) {
+          messageField.value = "";
+        }
+        await renderSafetyEvents();
+      } catch (error) {
+        window.alert(error.message || "Unable to record the safety event.");
+      } finally {
+        button.disabled = false;
+      }
+    });
+  });
+}
+
+async function renderLocationShares() {
+  const list = document.getElementById("location-shares-list");
+  if (!list) {
+    return;
+  }
+  let shares = [];
+  try {
+    const payload = await requestJson("/api/location-shares", { method: "GET" });
+    shares = Array.isArray(payload.shares) ? payload.shares : [];
+  } catch (error) {
+    list.innerHTML = fieldOpsNotice("Location shares are unavailable right now.");
+    return;
+  }
+
+  if (!shares.length) {
+    list.innerHTML = fieldOpsNotice("No active location shares. Shares auto-expire and can be revoked anytime.");
+    return;
+  }
+
+  list.innerHTML = shares
+    .map((share) => {
+      const active = share.status === "active";
+      const coords =
+        share.latitude != null && share.longitude != null
+          ? `${share.latitude.toFixed(4)}, ${share.longitude.toFixed(4)}`
+          : "Coordinates not captured";
+      return `
+        <article class="field-ops-card${active ? "" : " is-muted"}">
+          <div class="field-ops-card-head">
+            <div>
+              <strong>${escapeHtml(share.label)}</strong>
+              <span>${escapeHtml(share.precision)} · ${escapeHtml(coords)}</span>
+            </div>
+            <span class="status-chip status-${active ? "ok" : "muted"}">${escapeHtml(share.status)}</span>
+          </div>
+          <p class="field-ops-meta">${active ? "Expires" : "Ended"} ${escapeHtml(fieldOpsDate(share.expiresAt))}</p>
+          ${
+            active
+              ? `<button class="secondary-button compact-button" type="button" data-revoke-share="${escapeHtml(
+                  share.id
+                )}">Revoke now</button>`
+              : ""
+          }
+        </article>`;
+    })
+    .join("");
+
+  list.querySelectorAll("[data-revoke-share]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await requestJson(`/api/location-shares/${button.dataset.revokeShare}`, { method: "DELETE" });
+        await renderLocationShares();
+      } catch (error) {
+        button.disabled = false;
+        window.alert(error.message || "Unable to revoke the location share.");
+      }
+    });
+  });
+}
+
+function wireLocationShareForm() {
+  const form = document.getElementById("location-share-form");
+  if (!form || form.dataset.wired === "true") {
+    return;
+  }
+  form.dataset.wired = "true";
+
+  const missionSelect = form.querySelector('[name="missionId"]');
+  if (missionSelect) {
+    missionSelect.innerHTML = `<option value="">No linked mission</option>${fieldOpsMissionOptions()}`;
+  }
+
+  const useLocation = form.querySelector("[data-use-current-location]");
+  if (useLocation) {
+    useLocation.addEventListener("click", () => {
+      if (!navigator.geolocation) {
+        window.alert("This browser cannot capture your location.");
+        return;
+      }
+      useLocation.disabled = true;
+      navigator.geolocation.getCurrentPosition(
+        (position) => {
+          form.querySelector('[name="latitude"]').value = position.coords.latitude.toFixed(6);
+          form.querySelector('[name="longitude"]').value = position.coords.longitude.toFixed(6);
+          useLocation.disabled = false;
+          useLocation.textContent = "Location captured";
+        },
+        () => {
+          useLocation.disabled = false;
+          window.alert("Unable to read your current location.");
+        }
+      );
+    });
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const data = new FormData(form);
+    const status = form.querySelector("[data-form-status]");
+    try {
+      await requestJson("/api/location-shares", {
+        method: "POST",
+        body: JSON.stringify({
+          label: data.get("label"),
+          minutes: Number(data.get("minutes")) || 30,
+          precision: data.get("precision"),
+          latitude: data.get("latitude") ? Number(data.get("latitude")) : null,
+          longitude: data.get("longitude") ? Number(data.get("longitude")) : null,
+          missionId: data.get("missionId") || null
+        })
+      });
+      form.reset();
+      if (missionSelect) {
+        missionSelect.innerHTML = `<option value="">No linked mission</option>${fieldOpsMissionOptions()}`;
+      }
+      if (status) {
+        status.textContent = "Location share started. It will auto-expire at the selected window.";
+      }
+      await renderLocationShares();
+    } catch (error) {
+      if (status) {
+        status.textContent = error.message || "Unable to start the location share.";
+      }
+    }
+  });
+}
+
 async function initProtectedPage() {
+  // Kick the quest fetch off in parallel with the session check — it doesn't depend
+  // on the session result, so awaiting them serially doubles time-to-first-paint.
+  const questsPromise = requestJson("/api/quests", { method: "GET" })
+    .then((payload) => normalizeQuestBoardPayload(payload))
+    .catch((error) => {
+      console.warn("Quest board unavailable.", error);
+      return buildDefaultQuestBoard();
+    });
+
   const session = await requestJson("/api/auth/session");
   const authenticated = Boolean(session?.authenticated && session.user);
 
@@ -6120,14 +6691,8 @@ async function initProtectedPage() {
   }
 
   sessionUser = authenticated ? session.user : null;
-  questBoard = buildDefaultQuestBoard();
   const authTransport = await getAuthTransport();
-
-  try {
-    questBoard = normalizeQuestBoardPayload(await requestJson("/api/quests", { method: "GET" }));
-  } catch (error) {
-    console.warn("Quest board unavailable.", error);
-  }
+  questBoard = await questsPromise;
 
   applyProtectedPageShell();
   updateSessionChrome();
@@ -6155,6 +6720,7 @@ async function initProtectedPage() {
   renderRoadmapFocus();
   renderRoadmapPageLinks();
   initMapPage();
+  void renderFieldOps();
 
   if (currentPage === "account") {
     await initAccountPage();
