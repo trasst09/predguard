@@ -7,10 +7,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Nunito:wght@400;600;700;800&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css?v=20260625b" />
+    <link rel="stylesheet" href="./styles.css?v=20260709pogo" />
   </head>
   <body class="auth-body">
     <div class="page-shell auth-shell auth-shell-wide">
@@ -23,28 +23,28 @@
           </div>
         </div>
         <p class="kicker">Verified Guardian Network</p>
-        <h2>Secure sign in and account creation for role-gated platform access.</h2>
+        <h2>Protecting kids starts with a trained, verified community.</h2>
         <p class="hero-text">
-          This version replaces the mock portal with a real backend for registration, sign-in,
-          account management, session cookies, and admin-only access controls backed by Supabase.
+          PredatorGuard trains and verifies everyday citizens to spot grooming, document evidence
+          safely, and route it to the right authorities — all under strict protocol and oversight.
         </p>
         <div class="hero-note">
-          The first registered account is promoted to admin so you can unlock the restricted path
-          without manual database edits on the server-backed deployment. GitHub Pages uses
-          `config.js` with the public `SUPABASE_URL` and `SUPABASE_ANON_KEY`.
+          Every account moves through identity verification and mandatory safety training before
+          unlocking mission access. No one impersonates law enforcement, and every report routes
+          through official channels.
         </div>
         <div class="auth-metrics">
           <div class="mini-stat">
-            <strong>Member</strong>
-            <span>Self-serve sign-up with profile storage</span>
+            <strong>Guardians</strong>
+            <span>Trained, verified members ready to respond</span>
           </div>
           <div class="mini-stat">
-            <strong>Admin</strong>
-            <span>Protected access path for account oversight</span>
+            <strong>Missions</strong>
+            <span>Role-gated quests with built-in safety protocol</span>
           </div>
           <div class="mini-stat">
-            <strong>Session</strong>
-            <span>HTTP-only cookie-backed authentication</span>
+            <strong>Reporting</strong>
+            <span>Structured evidence handoff to official channels</span>
           </div>
         </div>
       </section>
@@ -55,7 +55,7 @@
             <p class="eyebrow">Access portal</p>
             <h3>Guardian sign in</h3>
           </div>
-          <span class="chip">Live auth</span>
+          <span class="chip">Secure</span>
         </div>
         <form class="report-form auth-form" id="login-form">
           <label>
@@ -69,10 +69,6 @@
           <button class="primary-button form-button" type="submit">Sign in</button>
         </form>
         <div class="form-feedback" id="auth-feedback"></div>
-        <div class="auth-links">
-          <span class="text-link">Initial admin auto-promotion happens on the server-backed deployment.</span>
-          <span class="text-link">Static deploys: set `SUPABASE_URL` and `SUPABASE_ANON_KEY` in `config.js`.</span>
-        </div>
         <div class="divider-line"></div>
         <form class="report-form auth-form compact-form" id="forgot-password-form">
           <label>
@@ -90,7 +86,7 @@
             <p class="eyebrow">New account</p>
             <h3>Create guardian profile</h3>
           </div>
-          <span class="chip">Supabase</span>
+          <span class="chip">Free</span>
         </div>
         <form class="report-form auth-form" id="register-form">
           <label>
@@ -150,10 +146,9 @@
           <details class="legal-details">
             <summary>Privacy Notice summary</summary>
             <p>
-              The app stores account profile data in Supabase, uses an HTTP-only session cookie for
-              sign-in, and only stores browser location after you opt in. Device coordinates stay on
-              this browser right now, while your location-sharing preference and legal acceptance
-              timestamps are saved with your profile.
+              Your account data is encrypted at rest, your session is protected with an HTTP-only
+              cookie, and your location is only ever shared after you opt in. You can review and
+              change your location-sharing preference at any time from your account page.
             </p>
           </details>
           <p class="hero-text legal-caption">
@@ -163,7 +158,7 @@
         </div>
       </section>
     </div>
-    <script src="./config.js?v=20260625b"></script>
-    <script src="./browser-app.js?v=20260625b" defer></script>
+    <script src="./config.js?v=20260709pogo"></script>
+    <script src="./browser-app.js?v=20260709pogo" defer></script>
   </body>
 </html>

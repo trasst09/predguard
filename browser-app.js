@@ -2025,6 +2025,19 @@ function setFeedback(targetId, message, type = "info") {
   target.className = `form-feedback ${type}`;
 }
 
+function renderAvatarMarkup(user, extraClass = "") {
+  const name = user?.displayName || "Guardian";
+  const initials = name.trim().slice(0, 2).toUpperCase() || "PG";
+
+  if (user?.avatarUrl) {
+    return `<img class="avatar-image ${extraClass}" src="${escapeHtml(user.avatarUrl)}" alt="${escapeHtml(
+      name
+    )}" />`;
+  }
+
+  return `<div class="brand-mark reddit-avatar ${extraClass}">${escapeHtml(initials)}</div>`;
+}
+
 function escapeHtml(value) {
   return String(value)
     .replaceAll("&", "&amp;")
@@ -2054,16 +2067,17 @@ function renderRedditRailProfile() {
   if (!sessionUser) {
     container.innerHTML = `
       <p class="reddit-rail-copy">Sign in to accept quests, join mission chat, and track your progress.</p>
-      <a class="primary-button compact-button" href="${escapeHtml(getPageUrl("auth"))}">Sign in</a>
+      <button class="primary-button compact-button" type="button" id="reddit-rail-signin">Sign in</button>
     `;
+    document
+      .getElementById("reddit-rail-signin")
+      ?.addEventListener("click", () => openAuthModal("login"));
     return;
   }
 
   container.innerHTML = `
     <div class="reddit-identity-row">
-      <div class="brand-mark reddit-avatar">${escapeHtml(
-        (sessionUser.displayName || "Guardian").slice(0, 2).toUpperCase()
-      )}</div>
+      ${renderAvatarMarkup(sessionUser)}
       <div>
         <strong>${escapeHtml(sessionUser.displayName || "Guardian")}</strong>
         <span>${escapeHtml(sessionUser.role || "Member")} · ${sessionUser.isAdmin ? "Admin" : "Guardian"}</span>
@@ -2155,9 +2169,9 @@ function applyProtectedPageShell() {
   railCard.className = "glass-card reddit-rail-card";
   railCard.innerHTML = `
     <p class="eyebrow">Community</p>
-    <h3>r/PredatorGuard</h3>
+    <h3>PredatorGuard</h3>
     <p class="hero-text reddit-rail-copy">
-      A Reddit-style workspace for the operational pages this product actually needs.
+      Guardian activity, mission updates, and safety resources in one place.
     </p>
     <div id="reddit-rail-profile"></div>
   `;
@@ -2225,6 +2239,223 @@ function createNav() {
   });
 }
 
+let authModalInitialized = false;
+
+function ensureAuthModal() {
+  if (authModalInitialized) {
+    return;
+  }
+  authModalInitialized = true;
+
+  const overlay = document.createElement("div");
+  overlay.className = "auth-modal-overlay";
+  overlay.id = "auth-modal-overlay";
+  overlay.hidden = true;
+  overlay.innerHTML = `
+    <div class="auth-modal glass-card" role="dialog" aria-modal="true" aria-labelledby="auth-modal-heading">
+      <button class="auth-modal-close" id="auth-modal-close" type="button" aria-label="Close">&times;</button>
+      <div class="auth-modal-tabs">
+        <button class="auth-modal-tab active" type="button" data-auth-tab="login">Sign in</button>
+        <button class="auth-modal-tab" type="button" data-auth-tab="register">Create account</button>
+      </div>
+
+      <div class="auth-modal-panel" data-auth-panel="login">
+        <div class="brand-lockup auth-modal-brand">
+          <span class="brand-mark">PG</span>
+          <div>
+            <p class="eyebrow">Guardian sign in</p>
+            <h3 id="auth-modal-heading">Welcome back</h3>
+          </div>
+        </div>
+        <form class="report-form auth-form" id="modal-login-form">
+          <label>
+            Email
+            <input type="email" name="email" placeholder="guardian@example.com" required />
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="Enter your password" required />
+          </label>
+          <button class="primary-button form-button" type="submit">Sign in</button>
+        </form>
+        <div class="form-feedback" id="modal-auth-feedback"></div>
+        <button class="text-link auth-modal-forgot-toggle" id="modal-forgot-toggle" type="button">
+          Forgot your password?
+        </button>
+        <form class="report-form auth-form compact-form" id="modal-forgot-password-form" hidden>
+          <label>
+            Password reset email
+            <input type="email" name="email" placeholder="guardian@example.com" required />
+          </label>
+          <button class="secondary-button form-button" type="submit">Send reset link</button>
+        </form>
+        <div class="form-feedback" id="modal-forgot-feedback"></div>
+      </div>
+
+      <div class="auth-modal-panel" data-auth-panel="register" hidden>
+        <div class="brand-lockup auth-modal-brand">
+          <span class="brand-mark">PG</span>
+          <div>
+            <p class="eyebrow">New account</p>
+            <h3>Create your guardian profile</h3>
+          </div>
+        </div>
+        <form class="report-form auth-form" id="modal-register-form">
+          <label>
+            Display name
+            <input type="text" name="displayName" placeholder="Maya" required />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" placeholder="guardian@example.com" required />
+          </label>
+          <label>
+            State
+            <select name="region" id="modal-register-region" required>
+              <option value="">Select your state</option>
+            </select>
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="At least 8 characters" minlength="8" required />
+          </label>
+          <label class="toggle-field legal-toggle">
+            <input type="checkbox" name="acceptedTerms" required />
+            I agree to the Terms of Service.
+          </label>
+          <label class="toggle-field legal-toggle">
+            <input type="checkbox" name="acceptedPrivacy" required />
+            I agree to the Privacy Notice.
+          </label>
+          <button class="primary-button form-button" type="submit">Create account</button>
+        </form>
+        <div class="form-feedback" id="modal-register-feedback"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  populateStateSelect(document.getElementById("modal-register-region"));
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) {
+      closeAuthModal();
+    }
+  });
+  document.getElementById("auth-modal-close").addEventListener("click", closeAuthModal);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !overlay.hidden) {
+      closeAuthModal();
+    }
+  });
+
+  overlay.querySelectorAll(".auth-modal-tab").forEach((tab) => {
+    tab.addEventListener("click", () => setAuthModalTab(tab.dataset.authTab));
+  });
+
+  const loginForm = document.getElementById("modal-login-form");
+  const registerForm = document.getElementById("modal-register-form");
+  const forgotForm = document.getElementById("modal-forgot-password-form");
+  const forgotToggle = document.getElementById("modal-forgot-toggle");
+
+  forgotToggle.addEventListener("click", () => {
+    forgotForm.hidden = !forgotForm.hidden;
+  });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setFeedback("modal-auth-feedback", "Signing you in...");
+    const formData = new FormData(loginForm);
+
+    try {
+      await requestJson("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: formData.get("email"),
+          password: formData.get("password")
+        })
+      });
+
+      setFeedback("modal-auth-feedback", "Signed in. Loading...", "success");
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      setFeedback("modal-auth-feedback", error.message, "error");
+    }
+  });
+
+  registerForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setFeedback("modal-register-feedback", "Creating your account...");
+    const formData = new FormData(registerForm);
+
+    try {
+      await requestJson("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          displayName: formData.get("displayName"),
+          email: formData.get("email"),
+          region: formData.get("region"),
+          password: formData.get("password"),
+          acceptedTerms: formData.get("acceptedTerms") === "on",
+          acceptedPrivacy: formData.get("acceptedPrivacy") === "on",
+          locationTrackingPreference: "unset"
+        })
+      });
+
+      setFeedback("modal-register-feedback", "Account created. Loading...", "success");
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      setFeedback("modal-register-feedback", error.message, "error");
+    }
+  });
+
+  forgotForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    setFeedback("modal-forgot-feedback", "Sending reset link...");
+
+    try {
+      const payload = await requestJson("/api/auth/forgot-password", {
+        method: "POST",
+        body: JSON.stringify({ email: forgotForm.elements.email.value })
+      });
+
+      setFeedback("modal-forgot-feedback", payload.message || "Reset link sent.", "success");
+      forgotForm.reset();
+    } catch (error) {
+      setFeedback("modal-forgot-feedback", error.message, "error");
+    }
+  });
+}
+
+function setAuthModalTab(tab) {
+  document.querySelectorAll(".auth-modal-tab").forEach((button) => {
+    button.classList.toggle("active", button.dataset.authTab === tab);
+  });
+  document.querySelectorAll(".auth-modal-panel").forEach((panel) => {
+    panel.hidden = panel.dataset.authPanel !== tab;
+  });
+}
+
+function openAuthModal(tab = "login") {
+  ensureAuthModal();
+  setAuthModalTab(tab);
+  const overlay = document.getElementById("auth-modal-overlay");
+  overlay.hidden = false;
+  requestAnimationFrame(() => overlay.classList.add("open"));
+  document.body.classList.add("auth-modal-active");
+}
+
+function closeAuthModal() {
+  const overlay = document.getElementById("auth-modal-overlay");
+  if (!overlay) {
+    return;
+  }
+  overlay.classList.remove("open");
+  document.body.classList.remove("auth-modal-active");
+  window.setTimeout(() => {
+    overlay.hidden = true;
+  }, 150);
+}
+
 function updateSessionChrome() {
   const badge = document.querySelector("[data-session-badge]");
   if (badge) {
@@ -2238,7 +2469,7 @@ function updateSessionChrome() {
     }
 
     button.textContent = "Sign in";
-    button.addEventListener("click", () => goToPage("auth"));
+    button.addEventListener("click", () => openAuthModal("login"));
   });
 }
 
@@ -2285,6 +2516,11 @@ function renderProfileCard() {
   }
 
   card.innerHTML = "";
+
+  const avatarRow = document.createElement("div");
+  avatarRow.className = "profile-card-avatar-row";
+  avatarRow.innerHTML = renderAvatarMarkup(sessionUser, "profile-card-avatar");
+  card.appendChild(avatarRow);
 
   const items = [
     ["Display name", sessionUser?.displayName || "Guardian"],
@@ -3219,7 +3455,7 @@ function renderMissions(filter = "all") {
       const claimButton = node.querySelector(".mission-claim-button");
       claimButton.addEventListener("click", async () => {
         if (access.state === "signed_out") {
-          goToPage("auth");
+          openAuthModal("login");
           return;
         }
         await handleQuestClaim(mission.id);
@@ -3412,7 +3648,7 @@ function wireTrainingQuizForm(form, trainingModule) {
     event.preventDefault();
 
     if (!sessionUser) {
-      goToPage("auth");
+      openAuthModal("login");
       return;
     }
 
@@ -3543,7 +3779,7 @@ function renderReportForm() {
     event.preventDefault();
 
     if (!sessionUser) {
-      goToPage("auth");
+      openAuthModal("login");
       return;
     }
 
@@ -3602,7 +3838,12 @@ async function renderLeaderboard() {
   }
 
   const rows = entries
-    ? entries.map((entry) => ({ name: entry.displayName, role: entry.role, points: entry.points }))
+    ? entries.map((entry) => ({
+        name: entry.displayName,
+        role: entry.role,
+        points: entry.points,
+        avatarUrl: entry.avatarUrl
+      }))
     : leaderboardData;
 
   rows.forEach((entry, index) => {
@@ -3610,6 +3851,7 @@ async function renderLeaderboard() {
     row.className = "leader-row";
     row.innerHTML = `
       <div class="leader-rank">${index + 1}</div>
+      ${renderAvatarMarkup({ displayName: entry.name, avatarUrl: entry.avatarUrl }, "leader-avatar")}
       <div class="leader-copy">
         <strong>${escapeHtml(entry.name)}</strong>
         <span>${escapeHtml(entry.role)}</span>
@@ -4714,11 +4956,79 @@ async function initAccountPage() {
     `;
   };
 
+  const avatarEditor = document.getElementById("avatar-editor");
+  const avatarFileInput = document.getElementById("avatar-file-input");
+  const avatarRemoveButton = document.getElementById("avatar-remove-button");
+  const renderAvatarEditor = () => {
+    if (!avatarEditor) {
+      return;
+    }
+    avatarEditor.innerHTML = renderAvatarMarkup(sessionUser, "avatar-editor-image");
+    if (avatarRemoveButton) {
+      avatarRemoveButton.disabled = !sessionUser?.avatarUrl;
+    }
+  };
+
   populateStateSelect(document.getElementById("account-region"), sessionUser?.region);
   populateStateSelect(document.getElementById("manual-region"), sessionUser?.region);
   renderLocationPreview();
   renderLegalSummary();
   renderAccountSummary();
+  renderAvatarEditor();
+
+  avatarFileInput?.addEventListener("change", async () => {
+    const file = avatarFileInput.files?.[0];
+    if (!file) {
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setFeedback("avatar-feedback", "Choose an image file.", "error");
+      avatarFileInput.value = "";
+      return;
+    }
+
+    if (file.size > 8 * 1024 * 1024) {
+      setFeedback("avatar-feedback", "Images must be 8 MB or smaller.", "error");
+      avatarFileInput.value = "";
+      return;
+    }
+
+    setFeedback("avatar-feedback", "Uploading photo...");
+
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const payload = await requestJson("/api/account/avatar", {
+        method: "POST",
+        body: JSON.stringify({ dataUrl })
+      });
+
+      sessionUser = payload.user;
+      renderAvatarEditor();
+      renderRedditRailProfile();
+      renderProfileCard();
+      setFeedback("avatar-feedback", "Profile picture updated.", "success");
+    } catch (error) {
+      setFeedback("avatar-feedback", error.message, "error");
+    } finally {
+      avatarFileInput.value = "";
+    }
+  });
+
+  avatarRemoveButton?.addEventListener("click", async () => {
+    setFeedback("avatar-feedback", "Removing photo...");
+
+    try {
+      const payload = await requestJson("/api/account/avatar", { method: "DELETE" });
+      sessionUser = payload.user;
+      renderAvatarEditor();
+      renderRedditRailProfile();
+      renderProfileCard();
+      setFeedback("avatar-feedback", "Profile picture removed.", "success");
+    } catch (error) {
+      setFeedback("avatar-feedback", error.message, "error");
+    }
+  });
 
   if (profileForm && sessionUser) {
     profileForm.elements.displayName.value = sessionUser.displayName;

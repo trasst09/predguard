@@ -45,6 +45,7 @@ const IS_VERCEL = Boolean(process.env.VERCEL);
 const RUNTIME_ROOT_DIR = IS_VERCEL ? path.join(process.env.TMPDIR || os.tmpdir(), "predguard") : ROOT_DIR;
 const UPLOADS_DIR = path.join(RUNTIME_ROOT_DIR, "uploads");
 const MISSION_UPLOADS_DIR = path.join(UPLOADS_DIR, "missions");
+const AVATAR_UPLOADS_DIR = path.join(UPLOADS_DIR, "avatars");
 loadEnvFile(path.join(ROOT_DIR, ".env"));
 loadEnvFile(path.join(ROOT_DIR, ".env.local"));
 const HOST = process.env.HOST || "127.0.0.1";
@@ -1064,6 +1065,7 @@ function mapSupabaseProfile(record) {
     verificationStatus: record.verification_status,
     points: record.points,
     readinessScore: record.readiness_score,
+    avatarUrl: record.avatar_url || null,
     nextRole: getNextRole(record.role),
     isAdmin: Boolean(record.is_admin),
     legalVersion: record.legal_version || LEGAL_VERSION,
@@ -1835,6 +1837,10 @@ async function updateSupabaseUserProfile(userId, updates) {
       patch.location_tracking_preference === "unset" ? null : new Date().toISOString();
   }
 
+  if (updates.avatarUrl !== undefined) {
+    patch.avatar_url = updates.avatarUrl;
+  }
+
   if (updates.acceptedTerms) {
     patch.terms_accepted_at = updates.termsAcceptedAt || new Date().toISOString();
   }
@@ -2352,7 +2358,8 @@ async function getLeaderboard() {
     displayName: profile.displayName,
     role: profile.role,
     region: profile.region,
-    points: profile.points
+    points: profile.points,
+    avatarUrl: profile.avatarUrl
   }));
 }
 
@@ -2813,6 +2820,41 @@ async function handlePasswordUpdate(request, response, currentUser) {
   sendJson(response, 200, { ok: true });
 }
 
+async function deleteAvatarFile(avatarUrl) {
+  if (!avatarUrl || !avatarUrl.startsWith("/uploads/avatars/")) {
+    return;
+  }
+
+  const filePath = path.join(AVATAR_UPLOADS_DIR, path.basename(avatarUrl));
+  await fsp.unlink(filePath).catch(() => {});
+}
+
+async function handleAvatarUpload(request, response, currentUser) {
+  const body = await parseBody(request);
+  const parsed = parseDataUrlAttachment(body.dataUrl);
+
+  if (parsed.kind !== "image") {
+    sendJson(response, 400, { error: "Profile pictures must be an image file." });
+    return;
+  }
+
+  const extension = getExtensionFromMimeType(parsed.mimeType);
+  await fsp.mkdir(AVATAR_UPLOADS_DIR, { recursive: true });
+
+  const filename = `${currentUser.id}-${Date.now().toString(36)}${extension}`;
+  await fsp.writeFile(path.join(AVATAR_UPLOADS_DIR, filename), parsed.buffer);
+  await deleteAvatarFile(currentUser.avatarUrl);
+
+  const user = await updateUserProfile(currentUser.id, { avatarUrl: `/uploads/avatars/${filename}` });
+  sendJson(response, 200, { user });
+}
+
+async function handleAvatarDelete(response, currentUser) {
+  await deleteAvatarFile(currentUser.avatarUrl);
+  const user = await updateUserProfile(currentUser.id, { avatarUrl: null });
+  sendJson(response, 200, { user });
+}
+
 async function handleAdminUserUpdate(request, response, userId) {
   const body = await parseBody(request);
   const points = Number(body.points);
@@ -3054,6 +3096,26 @@ async function handleApi(request, response, urlPath) {
     }
 
     await handlePasswordUpdate(request, response, user);
+    return;
+  }
+
+  if (urlPath === "/api/account/avatar" && request.method === "POST") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleAvatarUpload(request, response, user);
+    return;
+  }
+
+  if (urlPath === "/api/account/avatar" && request.method === "DELETE") {
+    const user = await requireUser(request, response);
+    if (!user) {
+      return;
+    }
+
+    await handleAvatarDelete(response, user);
     return;
   }
 
@@ -3335,6 +3397,16 @@ async function serveFile(response, filePath) {
   }
 }
 
+async function serveNotFoundPage(response) {
+  try {
+    const file = await fsp.readFile(path.join(ROOT_DIR, "404.html"));
+    response.writeHead(404, { "Content-Type": "text/html; charset=utf-8" });
+    response.end(file);
+  } catch {
+    sendJson(response, 404, { error: "Not found." });
+  }
+}
+
 async function handlePage(request, response, urlPath) {
   const routePath = resolvePath(urlPath);
   const user = await getSessionUser(request);
@@ -3383,12 +3455,19 @@ async function handlePage(request, response, urlPath) {
 
     const safePath = path.normalize(routePath).replace(/^(\.\.[/\\])+/, "");
     const absolute = routePath.startsWith("/uploads/")
-      ? path.join(UPLOADS_DIR, safePath.replace(/^uploads[/\\]?/u, ""))
+      ? path.join(UPLOADS_DIR, safePath.replace(/^[/\\]?uploads[/\\]?/u, ""))
       : path.join(ROOT_DIR, safePath);
 
     const expectedRoot = routePath.startsWith("/uploads/") ? UPLOADS_DIR : ROOT_DIR;
     if (!absolute.startsWith(expectedRoot)) {
       sendJson(response, 403, { error: "Forbidden." });
+      return;
+    }
+
+    const extension = path.extname(routePath);
+    const isPageLikeRequest = !routePath.startsWith("/uploads/") && (extension === "" || extension === ".html");
+    if (isPageLikeRequest) {
+      await serveNotFoundPage(response);
       return;
     }
 

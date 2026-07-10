@@ -7,3 +7,4 @@ server.err
 
 .vercel
 supabase/.temp/
+.claude/settings.local.json
