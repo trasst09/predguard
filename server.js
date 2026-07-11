@@ -926,9 +926,9 @@ const CONTENT_SECURITY_POLICY = [
   "form-action 'self'",
   "frame-ancestors 'none'",
   "object-src 'none'",
-  "img-src 'self' data: blob: https://*.supabase.co",
+  "img-src 'self' data: blob: https://*.supabase.co https://*.tile.openstreetmap.org",
   "font-src 'self' https://fonts.gstatic.com",
-  "style-src 'self' https://fonts.googleapis.com 'unsafe-inline'",
+  "style-src 'self' https://fonts.googleapis.com https://cdn.jsdelivr.net 'unsafe-inline'",
   "script-src 'self' https://cdn.jsdelivr.net",
   "connect-src 'self' https://*.supabase.co wss://*.supabase.co"
 ].join("; ");
