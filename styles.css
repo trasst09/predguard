@@ -3157,3 +3157,250 @@ body.auth-modal-active {
     grid-template-columns: 1fr;
   }
 }
+
+/* ============================================================ */
+/* PredatorGuard — Guardian mockup theme (authoritative layer)  */
+/* Clean Salesforce / Trailhead-style light SaaS system.        */
+/* Redefines design tokens + core components on top of every    */
+/* prior theme layer. Appended last so it wins the cascade.     */
+/* ============================================================ */
+:root {
+  --bg: #f2f4f7;
+  --panel: #ffffff;
+  --panel-strong: #ffffff;
+  --line: #e3e6ea;
+  --line-strong: #cfd4da;
+  --text: #16325c;
+  --muted: #5c6670;
+  --accent: #0176d3;
+  --accent-strong: #014486;
+  --alert: #c23934;
+  --warning: #ff9f2e;
+  --navy: #032d60;
+  --blue-light: #eaf5ff;
+  --blue-light-border: #cfe8ff;
+  --shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 14px rgba(15, 23, 42, 0.06);
+  --radius: 16px;
+}
+
+body,
+body[data-page="dashboard"] {
+  --panel: #ffffff;
+  --panel-strong: #ffffff;
+  --line: #e3e6ea;
+  --text: #16325c;
+  --muted: #5c6670;
+  --accent: #0176d3;
+  --accent-strong: #014486;
+  --alert: #c23934;
+  --warning: #ff9f2e;
+  color: #2b2826;
+  font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #f2f4f7;
+}
+
+h1, h2, h3, h4 {
+  font-family: "Inter", sans-serif;
+  color: var(--text);
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+
+/* ---- top bar + nav ---- */
+.reddit-topbar {
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--line);
+  box-shadow: 0 1px 0 rgba(15, 23, 42, 0.05);
+}
+.topbar .brand-mark,
+.brand-mark {
+  background: linear-gradient(145deg, #4da2ef, var(--accent));
+  border: none;
+  box-shadow: 0 2px 8px rgba(1, 118, 211, 0.35);
+  color: #fff;
+  font-weight: 800;
+}
+.nav-link {
+  background: #fff;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-width: 1px;
+  font-weight: 600;
+}
+.nav-link:hover {
+  background: var(--blue-light);
+  color: var(--accent);
+  border-color: var(--blue-light-border);
+}
+.nav-link.active,
+body[data-page="dashboard"] .nav-link.active {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* ---- cards ---- */
+.hero, .glass-card, .stat-card, .mission-card, .page-link-card, .mini-stat,
+body[data-page="dashboard"] .glass-card, body[data-page="dashboard"] .stat-card,
+body[data-page="dashboard"] .page-link-card, body[data-page="dashboard"] .mini-stat,
+body[data-page="dashboard"] .hero-panel {
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  border-radius: var(--radius);
+  backdrop-filter: none;
+}
+.hero, .glass-card { border-radius: var(--radius); }
+.glass-card:hover, .stat-card:hover { box-shadow: 0 4px 20px rgba(15, 23, 42, 0.09); }
+
+/* ---- inner tiles / list items ---- */
+.profile-card > div, .readiness-item, .timeline-step, .module-card, .safety-card,
+.leader-row, .roadmap-step, .dashboard-detail-stats > div, .dashboard-report-item,
+.dashboard-activity-item, .map-entity-card, .hero-mini-card, .dashboard-radar-item,
+.dashboard-action-card, .reddit-rail-metrics > div, .reddit-highlight-item,
+.reddit-rule-item, .reddit-side-link, .quiz-option, .field-ops-card,
+.report-preview, .map-detail-preview {
+  background: #f7f9fb;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: none;
+}
+.dashboard-radar-item.active, .dashboard-action-card:hover, .map-entity-card.active {
+  background: var(--blue-light);
+  border-color: var(--blue-light-border);
+}
+.hero-note {
+  border-left: 3px solid var(--accent);
+  background: var(--blue-light);
+  border-radius: 12px;
+}
+
+/* ---- buttons ---- */
+.primary-button, .filter-button.active,
+body[data-page="dashboard"] .primary-button,
+body[data-page="dashboard"] .filter-button.active {
+  color: #fff;
+  background: var(--accent);
+  border: 1.5px solid transparent;
+  font-weight: 700;
+  letter-spacing: 0;
+  border-radius: 999px;
+  box-shadow: 0 2px 10px rgba(1, 118, 211, 0.28);
+  transition: background 0.15s ease, transform 0.15s ease, box-shadow 0.15s ease;
+}
+.primary-button:hover,
+body[data-page="dashboard"] .primary-button:hover {
+  background: var(--accent-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 14px rgba(1, 118, 211, 0.32);
+}
+.primary-button:active { transform: translateY(0); box-shadow: 0 2px 8px rgba(1, 118, 211, 0.28); }
+.secondary-button {
+  color: var(--navy);
+  background: #fff;
+  border: 1.5px solid var(--line-strong);
+  font-weight: 700;
+  box-shadow: none;
+}
+.secondary-button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  transform: translateY(-1px);
+}
+.primary-button, .secondary-button, .filter-button { border-radius: 999px; padding: 0.7rem 1.25rem; }
+
+/* ---- chips / badges / pills ---- */
+.status-pill, .chip, .mission-type, .required-roles span, #readiness-badge,
+.nav-link, .filter-button, .module-status-row .chip {
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: #f2f4f7;
+  color: var(--muted);
+  font-weight: 700;
+}
+.chip { color: var(--accent); background: var(--blue-light); border-color: var(--blue-light-border); }
+.status-pill { background: #e2f7ef; border-color: #bfead9; color: #037a5a; }
+.status-dot { background: #04a67a; box-shadow: none; }
+.mission-risk { background: #fff2e2; color: #b8560c; border-color: #ffe0b8; }
+.leader-rank { background: var(--blue-light); color: var(--accent); }
+.roadmap-status-complete { background: #e2f7ef; color: #037a5a; }
+.roadmap-status-active { background: #fff2e2; color: #b8560c; }
+.roadmap-status-planned { background: var(--blue-light); color: var(--accent); }
+
+/* ---- inputs ---- */
+input, select, textarea {
+  border-radius: 11px;
+  border: 1.5px solid var(--line);
+  background: #f7f9fb;
+  color: #2b2826;
+  font: inherit;
+}
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  background: #fff;
+  box-shadow: 0 0 0 3px rgba(1, 118, 211, 0.12);
+}
+
+/* ---- readiness ring ---- */
+.readiness-ring, body[data-page="dashboard"] .readiness-ring {
+  background: conic-gradient(var(--accent) 0 74%, #e3e6ea 74% 100%);
+  box-shadow: none;
+}
+.readiness-core, body[data-page="dashboard"] .readiness-core { background: #fff; color: var(--text); }
+
+/* ---- map markers ---- */
+.map-region-node, .map-marker {
+  background: #fff;
+  border: 1px solid var(--line);
+  box-shadow: var(--shadow);
+  color: var(--text);
+}
+.map-region-node.active, .map-marker.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(1, 118, 211, 0.16), var(--shadow);
+}
+.user-marker { border-color: var(--accent); }
+.quest-marker { border-color: var(--warning); }
+.map-location-marker { border-color: #04a67a; }
+
+/* ---- auth modal ---- */
+.auth-modal-tab.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.auth-modal-close { background: var(--blue-light); color: var(--navy); }
+.auth-modal-forgot-toggle { color: var(--accent); }
+
+/* ---- 404 ---- */
+.not-found-badge { color: var(--accent); font-family: "Inter", sans-serif; }
+
+/* ---- sign-in branding hero (navy signature like the mockup) ---- */
+.auth-hero {
+  background: linear-gradient(120deg, var(--navy) 0%, #0a4a8f 55%, var(--accent) 100%);
+  border: none;
+  color: #fff;
+  position: relative;
+  overflow: hidden;
+}
+.auth-hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  opacity: 0.4;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.5) 1.4px, transparent 1.4px);
+  background-size: 30px 30px;
+  -webkit-mask-image: radial-gradient(ellipse 80% 90% at 80% 15%, black, transparent);
+  mask-image: radial-gradient(ellipse 80% 90% at 80% 15%, black, transparent);
+  pointer-events: none;
+}
+.auth-hero > * { position: relative; z-index: 1; }
+.auth-hero h1, .auth-hero h2, .auth-hero h3 { color: #fff; }
+.auth-hero .eyebrow, .auth-hero .kicker, .auth-hero .hero-text, .auth-hero .mini-stat span {
+  color: rgba(255, 255, 255, 0.85);
+}
+.auth-hero .brand-mark { background: rgba(255, 255, 255, 0.16); box-shadow: none; color: #fff; }
+.auth-hero .mini-stat { background: rgba(255, 255, 255, 0.08); border-color: rgba(255, 255, 255, 0.18); }
+.auth-hero .mini-stat strong { color: #fff; }
+.auth-hero .hero-note {
+  background: rgba(255, 255, 255, 0.08);
+  border-left-color: rgba(255, 255, 255, 0.5);
+  color: rgba(255, 255, 255, 0.9);
+}
