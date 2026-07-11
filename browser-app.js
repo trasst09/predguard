@@ -2151,53 +2151,58 @@ function applyProtectedPageShell() {
   const topbar = hero?.querySelector(".topbar");
   const nav = hero?.querySelector("#site-nav");
 
-  if (!shell || !hero || !main || !topbar || shell.dataset.redditShellApplied === "true") {
+  if (!shell || !hero || !main || !topbar || shell.dataset.appShellApplied === "true") {
     return;
   }
 
-  shell.dataset.redditShellApplied = "true";
-  shell.classList.add("reddit-shell");
-  topbar.classList.add("reddit-topbar");
-  shell.insertBefore(topbar, shell.firstChild);
+  shell.dataset.appShellApplied = "true";
+  shell.classList.add("app-shell-mock");
 
-  const frame = document.createElement("div");
-  frame.className = "reddit-frame";
+  // Mockup app shell: a full-width top nav (logo · inline page tabs · session
+  // cluster) over a single centered content column. No side rails.
+  const appNav = document.createElement("nav");
+  appNav.className = "app-nav";
+  appNav.setAttribute("aria-label", "Application");
+  appNav.innerHTML =
+    '<div class="app-nav-left">' +
+    '<a class="pub-logo app-nav-logo" href="' +
+    escapeHtml(getPageUrl("dashboard")) +
+    '"><span class="mark">◆</span>PredatorGuard</a>' +
+    "</div>";
 
-  const leftRail = document.createElement("aside");
-  leftRail.className = "reddit-leftbar";
-
-  const railCard = document.createElement("section");
-  railCard.className = "glass-card reddit-rail-card";
-  railCard.innerHTML = `
-    <p class="eyebrow">Community</p>
-    <h3>PredatorGuard</h3>
-    <p class="hero-text reddit-rail-copy">
-      Guardian activity, mission updates, and safety resources in one place.
-    </p>
-    <div id="reddit-rail-profile"></div>
-  `;
-
+  const navLeft = appNav.querySelector(".app-nav-left");
   if (nav) {
-    nav.classList.add("reddit-nav");
-    railCard.appendChild(nav);
+    nav.classList.add("app-nav-links");
+    navLeft.appendChild(nav);
   }
 
-  leftRail.appendChild(railCard);
+  const navRight = document.createElement("div");
+  navRight.className = "app-nav-right";
+  const cluster = topbar.querySelector(".nav-cluster");
+  if (cluster) {
+    navRight.appendChild(cluster);
+  }
+  if (sessionUser) {
+    const avatarLink = document.createElement("a");
+    avatarLink.className = "app-nav-avatar";
+    avatarLink.href = getPageUrl("account");
+    avatarLink.setAttribute("aria-label", "Account");
+    avatarLink.innerHTML = renderAvatarMarkup(sessionUser);
+    navRight.appendChild(avatarLink);
+  }
+  appNav.appendChild(navRight);
 
-  const mainColumn = document.createElement("div");
-  mainColumn.className = "reddit-main-column";
-  mainColumn.appendChild(hero);
-  mainColumn.appendChild(main);
+  topbar.remove();
 
-  const rightRail = document.createElement("aside");
-  rightRail.className = "reddit-rightbar";
-  rightRail.innerHTML = '<div id="reddit-page-sidebar"></div>';
+  const mainCol = document.createElement("div");
+  mainCol.className = "main-col";
+  const appPage = document.createElement("div");
+  appPage.className = "app-page";
+  appPage.append(hero, main);
+  mainCol.appendChild(appPage);
 
-  frame.append(leftRail, mainColumn, rightRail);
-  shell.appendChild(frame);
-
-  renderRedditRailProfile();
-  renderRedditSidebar();
+  shell.textContent = "";
+  shell.append(appNav, mainCol);
 }
 
 function createNav() {
