@@ -4698,26 +4698,72 @@ function initMapPage() {
   }, 0);
 }
 
+function wireHomeNavReveal() {
+  const nav = document.getElementById("home-nav");
+  const hero = document.querySelector(".home-hero");
+  if (!nav || !hero) {
+    return;
+  }
+
+  const threshold = Math.max(hero.offsetHeight - 120, 80);
+  const syncNavVisibility = () => {
+    nav.classList.toggle("nav-visible", window.scrollY > threshold);
+  };
+
+  syncNavVisibility();
+  window.addEventListener("scroll", syncNavVisibility, { passive: true });
+}
+
+function wireHomeScrollReveal() {
+  const targets = document.querySelectorAll(".reveal");
+  if (!targets.length) {
+    return;
+  }
+
+  if (!("IntersectionObserver" in window)) {
+    targets.forEach((target) => target.classList.add("is-visible"));
+    return;
+  }
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("is-visible");
+          observer.unobserve(entry.target);
+        }
+      });
+    },
+    { threshold: 0.15 }
+  );
+
+  targets.forEach((target) => observer.observe(target));
+}
+
 async function initHomePage() {
   const signInButton = document.getElementById("home-signin-button");
 
   try {
     const session = await requestJson("/api/auth/session");
     if (session.authenticated) {
+      sessionUser = session.user;
       if (signInButton) {
         signInButton.textContent = "Go to dashboard";
         signInButton.addEventListener("click", () => goToPage(session.user?.isAdmin ? "admin" : "dashboard"));
       }
-      document.body.classList.add("page-ready");
-      return;
+    } else {
+      signInButton?.addEventListener("click", () => openAuthModal("login"));
     }
   } catch (error) {
     if (error.message !== "Request failed.") {
       console.error(error);
     }
+    signInButton?.addEventListener("click", () => openAuthModal("login"));
   }
 
-  signInButton?.addEventListener("click", () => openAuthModal("login"));
+  createNav();
+  wireHomeNavReveal();
+  wireHomeScrollReveal();
   document.body.classList.add("page-ready");
 }
 
