@@ -2843,8 +2843,25 @@ async function handlePasswordUpdate(request, response, currentUser) {
   sendJson(response, 200, { ok: true });
 }
 
+const AVATAR_BUCKET = "avatars";
+const AVATAR_STORAGE_PREFIX = "/storage/v1/object/public/" + AVATAR_BUCKET + "/";
+
 async function deleteAvatarFile(avatarUrl) {
-  if (!avatarUrl || !avatarUrl.startsWith("/uploads/avatars/")) {
+  if (!avatarUrl) {
+    return;
+  }
+
+  if (hasSupabaseConfig) {
+    const markerIndex = avatarUrl.indexOf(AVATAR_STORAGE_PREFIX);
+    if (markerIndex === -1) {
+      return;
+    }
+    const key = avatarUrl.slice(markerIndex + AVATAR_STORAGE_PREFIX.length);
+    await supabaseAdmin.storage.from(AVATAR_BUCKET).remove([key]).catch(() => {});
+    return;
+  }
+
+  if (!avatarUrl.startsWith("/uploads/avatars/")) {
     return;
   }
 
@@ -2862,13 +2879,29 @@ async function handleAvatarUpload(request, response, currentUser) {
   }
 
   const extension = getExtensionFromMimeType(parsed.mimeType);
-  await fsp.mkdir(AVATAR_UPLOADS_DIR, { recursive: true });
-
   const filename = `${currentUser.id}-${Date.now().toString(36)}${extension}`;
-  await fsp.writeFile(path.join(AVATAR_UPLOADS_DIR, filename), parsed.buffer);
+
+  // ponytail: Vercel's filesystem is ephemeral (uploads only survive on the
+  // instance that wrote them), so persisted avatars must live in Supabase
+  // Storage there; local JSON-fallback dev keeps writing to disk.
+  let avatarUrl;
+  if (hasSupabaseConfig) {
+    const { error } = await supabaseAdmin.storage
+      .from(AVATAR_BUCKET)
+      .upload(filename, parsed.buffer, { contentType: parsed.mimeType, upsert: true });
+    if (error) {
+      throw new Error(`Avatar upload failed: ${error.message}`);
+    }
+    avatarUrl = `${SUPABASE_URL}${AVATAR_STORAGE_PREFIX}${filename}`;
+  } else {
+    await fsp.mkdir(AVATAR_UPLOADS_DIR, { recursive: true });
+    await fsp.writeFile(path.join(AVATAR_UPLOADS_DIR, filename), parsed.buffer);
+    avatarUrl = `/uploads/avatars/${filename}`;
+  }
+
   await deleteAvatarFile(currentUser.avatarUrl);
 
-  const user = await updateUserProfile(currentUser.id, { avatarUrl: `/uploads/avatars/${filename}` });
+  const user = await updateUserProfile(currentUser.id, { avatarUrl });
   sendJson(response, 200, { user });
 }
 
