@@ -14,7 +14,7 @@ const PAGE_CONFIG = {
   account: { routePath: "/account", legacyPath: "/account.html" },
   admin: { routePath: "/admin", legacyPath: "/admin.html" }
 };
-const PUBLIC_PAGE_KEYS = new Set(["auth", "reset-password"]);
+const PUBLIC_PAGE_KEYS = new Set(["auth", "home", "reset-password"]);
 const ADMIN_ONLY_PAGE_KEYS = new Set(["admin"]);
 // ponytail: pages that still require sign-in to view at all; everything else
 // (dashboard/missions/map/training/reporting/leaderboard/roadmap) is browsable
@@ -920,10 +920,6 @@ async function getAuthTransport() {
   }
 
   return authTransportPromise;
-}
-
-async function getPostAuthLandingPage(user) {
-  return user?.isAdmin ? "admin" : "dashboard";
 }
 
 async function requestJson(url, options = {}) {
@@ -2246,8 +2242,22 @@ function createNav() {
     if (isActive) {
       anchor.setAttribute("aria-current", "page");
     }
+    if (link.title === "Sign in") {
+      anchor.addEventListener("click", (event) => {
+        event.preventDefault();
+        openAuthModal("login");
+      });
+    }
     nav.appendChild(anchor);
   });
+}
+
+function postAuthRedirect(user) {
+  if (currentPage === "home") {
+    goToPage(user?.isAdmin ? "admin" : "dashboard");
+    return;
+  }
+  window.location.reload();
 }
 
 let authModalInitialized = false;
@@ -2378,7 +2388,7 @@ function ensureAuthModal() {
     const formData = new FormData(loginForm);
 
     try {
-      await requestJson("/api/auth/login", {
+      const payload = await requestJson("/api/auth/login", {
         method: "POST",
         body: JSON.stringify({
           email: formData.get("email"),
@@ -2387,7 +2397,7 @@ function ensureAuthModal() {
       });
 
       setFeedback("modal-auth-feedback", "Signed in. Loading...", "success");
-      window.setTimeout(() => window.location.reload(), 500);
+      window.setTimeout(() => postAuthRedirect(payload.user), 500);
     } catch (error) {
       setFeedback("modal-auth-feedback", error.message, "error");
     }
@@ -2399,7 +2409,7 @@ function ensureAuthModal() {
     const formData = new FormData(registerForm);
 
     try {
-      await requestJson("/api/auth/register", {
+      const payload = await requestJson("/api/auth/register", {
         method: "POST",
         body: JSON.stringify({
           displayName: formData.get("displayName"),
@@ -2413,7 +2423,7 @@ function ensureAuthModal() {
       });
 
       setFeedback("modal-register-feedback", "Account created. Loading...", "success");
-      window.setTimeout(() => window.location.reload(), 500);
+      window.setTimeout(() => postAuthRedirect(payload.user), 500);
     } catch (error) {
       setFeedback("modal-register-feedback", error.message, "error");
     }
@@ -4688,22 +4698,17 @@ function initMapPage() {
   }, 0);
 }
 
-async function initAuthPage() {
-  const authTransport = await getAuthTransport();
-  if (
-    authTransport === "browser" &&
-    (!runtimeConfig.supabaseUrl || !runtimeConfig.supabaseAnonKey)
-  ) {
-    const message =
-      "Static hosting detected. Add ./config.js with SUPABASE_URL and SUPABASE_ANON_KEY to enable sign in.";
-    setFeedback("auth-feedback", message, "error");
-    setFeedback("register-feedback", message, "error");
-  }
+async function initHomePage() {
+  const signInButton = document.getElementById("home-signin-button");
 
   try {
     const session = await requestJson("/api/auth/session");
     if (session.authenticated) {
-      goToPage(await getPostAuthLandingPage(session.user));
+      if (signInButton) {
+        signInButton.textContent = "Go to dashboard";
+        signInButton.addEventListener("click", () => goToPage(session.user?.isAdmin ? "admin" : "dashboard"));
+      }
+      document.body.classList.add("page-ready");
       return;
     }
   } catch (error) {
@@ -4712,78 +4717,8 @@ async function initAuthPage() {
     }
   }
 
-  const loginForm = document.getElementById("login-form");
-  const registerForm = document.getElementById("register-form");
-  const forgotForm = document.getElementById("forgot-password-form");
-  populateStateSelect(document.getElementById("register-region"));
-
-  loginForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setFeedback("auth-feedback", "Signing you in...");
-
-    const formData = new FormData(loginForm);
-
-    try {
-      const payload = await requestJson("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({
-          email: formData.get("email"),
-          password: formData.get("password")
-        })
-      });
-
-      setFeedback("auth-feedback", "Signed in. Loading your dashboard...", "success");
-      goToPage(await getPostAuthLandingPage(payload.user));
-    } catch (error) {
-      setFeedback("auth-feedback", error.message, "error");
-    }
-  });
-
-  registerForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setFeedback("register-feedback", "Creating your account...");
-
-    const formData = new FormData(registerForm);
-
-    try {
-      const payload = await requestJson("/api/auth/register", {
-        method: "POST",
-        body: JSON.stringify({
-          displayName: formData.get("displayName"),
-          email: formData.get("email"),
-          region: formData.get("region"),
-          password: formData.get("password"),
-          acceptedTerms: formData.get("acceptedTerms") === "on",
-          acceptedPrivacy: formData.get("acceptedPrivacy") === "on",
-          locationTrackingPreference: formData.get("locationTrackingPreference")
-        })
-      });
-
-      setFeedback("register-feedback", "Account created. Redirecting you now...", "success");
-      goToPage(await getPostAuthLandingPage(payload.user));
-    } catch (error) {
-      setFeedback("register-feedback", error.message, "error");
-    }
-  });
-
-  forgotForm?.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    setFeedback("forgot-feedback", "Sending reset link...");
-
-    try {
-      const payload = await requestJson("/api/auth/forgot-password", {
-        method: "POST",
-        body: JSON.stringify({
-          email: forgotForm.elements.email.value
-        })
-      });
-
-      setFeedback("forgot-feedback", payload.message || "Reset link sent.", "success");
-      forgotForm.reset();
-    } catch (error) {
-      setFeedback("forgot-feedback", error.message, "error");
-    }
-  });
+  signInButton?.addEventListener("click", () => openAuthModal("login"));
+  document.body.classList.add("page-ready");
 }
 
 async function initPasswordResetPage() {
@@ -6811,8 +6746,8 @@ async function init() {
     return;
   }
 
-  if (document.body.classList.contains("auth-body")) {
-    await initAuthPage();
+  if (currentPage === "home") {
+    await initHomePage();
     return;
   }
 

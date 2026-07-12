@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>PredatorGuard Sign In</title>
+    <title>PredatorGuard — A Verified Guardian Network for Kids</title>
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
@@ -12,151 +12,118 @@
     />
     <link rel="stylesheet" href="./styles.css?v=20260711mock2" />
   </head>
-  <body class="auth-body">
-    <div class="page-shell auth-shell auth-shell-wide">
-      <section class="auth-hero">
-        <div class="brand-lockup">
-          <span class="brand-mark">PG</span>
-          <div>
-            <p class="eyebrow">US Pilot / Secure Access</p>
-            <h1>PredatorGuard</h1>
-          </div>
+  <body class="auth-body" data-page="home">
+    <div class="page-shell app-shell-mock">
+      <nav class="app-nav" aria-label="Primary">
+        <div class="app-nav-left">
+          <a class="app-nav-logo" href="./"><span class="mark">◆</span>PredatorGuard</a>
         </div>
-        <p class="kicker">Verified Guardian Network</p>
-        <h2>Protecting kids starts with a trained, verified community.</h2>
-        <p class="hero-text">
-          PredatorGuard trains and verifies everyday citizens to spot grooming, document evidence
-          safely, and route it to the right authorities — all under strict protocol and oversight.
-        </p>
-        <div class="hero-note">
-          Every account moves through identity verification and mandatory safety training before
-          unlocking mission access. No one impersonates law enforcement, and every report routes
-          through official channels.
+        <div class="app-nav-right">
+          <button class="primary-button compact-button" id="home-signin-button" type="button">
+            Sign in
+          </button>
         </div>
-        <div class="auth-metrics">
-          <div class="mini-stat">
-            <strong>Guardians</strong>
-            <span>Trained, verified members ready to respond</span>
-          </div>
-          <div class="mini-stat">
-            <strong>Missions</strong>
-            <span>Role-gated quests with built-in safety protocol</span>
-          </div>
-          <div class="mini-stat">
-            <strong>Reporting</strong>
-            <span>Structured evidence handoff to official channels</span>
-          </div>
-        </div>
-      </section>
+      </nav>
 
-      <section class="auth-card glass-card">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">Access portal</p>
-            <h3>Guardian sign in</h3>
-          </div>
-          <span class="chip">Secure</span>
-        </div>
-        <form class="report-form auth-form" id="login-form">
-          <label>
-            Email
-            <input type="email" name="email" placeholder="guardian@example.com" required />
-          </label>
-          <label>
-            Password
-            <input type="password" name="password" placeholder="Enter your password" required />
-          </label>
-          <button class="primary-button form-button" type="submit">Sign in</button>
-        </form>
-        <div class="form-feedback" id="auth-feedback"></div>
-        <div class="divider-line"></div>
-        <form class="report-form auth-form compact-form" id="forgot-password-form">
-          <label>
-            Password reset email
-            <input type="email" name="email" placeholder="guardian@example.com" required />
-          </label>
-          <button class="secondary-button form-button" type="submit">Send reset link</button>
-        </form>
-        <div class="form-feedback" id="forgot-feedback"></div>
-      </section>
+      <div class="main-col">
+        <div class="app-page">
+          <header class="hero auth-hero">
+            <div class="brand-lockup">
+              <span class="brand-mark">PG</span>
+              <div>
+                <p class="eyebrow">US Pilot / Verified Guardian Network</p>
+                <h1>PredatorGuard</h1>
+              </div>
+            </div>
+            <p class="kicker">Protecting kids starts with a trained, verified community</p>
+            <h2>Every child deserves a network watching out for them.</h2>
+            <p class="hero-text">
+              PredatorGuard trains and verifies everyday citizens to spot grooming, document
+              evidence safely, and route it to the right authorities — all under strict protocol
+              and oversight. No one impersonates law enforcement, and every report moves through
+              official channels.
+            </p>
+            <div class="hero-pill-strip">
+              <span class="hero-pill">No account needed to browse</span>
+              <span class="hero-pill">Verified, trained guardians</span>
+              <span class="hero-pill">Structured reporting to authorities</span>
+            </div>
+            <div class="hero-actions">
+              <a class="primary-button" href="./missions.html">Browse missions</a>
+              <a class="secondary-button" href="#awareness">Why this matters</a>
+            </div>
+          </header>
 
-      <section class="auth-card glass-card">
-        <div class="section-heading">
-          <div>
-            <p class="eyebrow">New account</p>
-            <h3>Create guardian profile</h3>
-          </div>
-          <span class="chip">Free</span>
+          <main>
+            <section class="glass-card awareness-card" id="awareness">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Why this work matters</p>
+                  <h3>Remembering the victims of the Epstein network</h3>
+                </div>
+                <span class="chip">Awareness</span>
+              </div>
+              <p class="hero-text">
+                The Jeffrey Epstein case showed the world how a trafficking network can operate
+                for years in plain sight — protected by wealth, power, and institutions that were
+                slow to listen. Hundreds of survivors, many of them minors at the time they were
+                abused, have had to fight publicly for acknowledgment and accountability that
+                should never have taken this long.
+              </p>
+              <p class="hero-text">
+                Their courage in coming forward is a reminder of why this work exists: prevention
+                and early detection shouldn't depend on a survivor's willingness to relive their
+                trauma in public. A trained, vigilant community that spots the warning signs early
+                — and routes concerns through real, official channels — is one small way to make
+                sure fewer children ever end up needing that courage.
+              </p>
+              <div class="hero-actions">
+                <a class="secondary-button" href="./training.html">Explore training modules</a>
+                <a class="secondary-button" href="./reporting.html">See how reporting works</a>
+              </div>
+            </section>
+
+            <section class="glass-card">
+              <div class="section-heading">
+                <div>
+                  <p class="eyebrow">Start exploring</p>
+                  <h3>Everything below is open to visitors — no sign-in required</h3>
+                </div>
+              </div>
+              <div class="page-link-grid">
+                <a class="page-link-card" href="./dashboard.html">
+                  <strong>Dashboard</strong>
+                  <span>Overview metrics, readiness, and entry points to focused workflows.</span>
+                </a>
+                <a class="page-link-card" href="./missions.html">
+                  <strong>Missions</strong>
+                  <span>Browse mission briefs by type, required roles, and oversight level.</span>
+                </a>
+                <a class="page-link-card" href="./map.html">
+                  <strong>Map</strong>
+                  <span>Explore regions, guardians, and quests through an interactive map.</span>
+                </a>
+                <a class="page-link-card" href="./training.html">
+                  <strong>Training</strong>
+                  <span>Track certification progress across legal, safety, and evidence modules.</span>
+                </a>
+                <a class="page-link-card" href="./reporting.html">
+                  <strong>Reporting</strong>
+                  <span>See how structured evidence drafts move to moderator review and handoff.</span>
+                </a>
+                <a class="page-link-card" href="./leaderboard.html">
+                  <strong>Leaderboard</strong>
+                  <span>See how points are awarded and which guardians are leading.</span>
+                </a>
+                <a class="page-link-card" href="./roadmap.html">
+                  <strong>Roadmap</strong>
+                  <span>Track coverage across states, active guardians, and current quests.</span>
+                </a>
+              </div>
+            </section>
+          </main>
         </div>
-        <form class="report-form auth-form" id="register-form">
-          <label>
-            Display name
-            <input type="text" name="displayName" placeholder="Maya" required />
-          </label>
-          <label>
-            Email
-            <input type="email" name="email" placeholder="guardian@example.com" required />
-          </label>
-          <label>
-            State
-            <select name="region" id="register-region" required>
-              <option value="">Select your state</option>
-            </select>
-          </label>
-          <label>
-            Password
-            <input
-              type="password"
-              name="password"
-              placeholder="At least 8 characters"
-              minlength="8"
-              required
-            />
-          </label>
-          <label class="toggle-field legal-toggle">
-            <input type="checkbox" name="acceptedTerms" required />
-            I agree to the Terms of Service for account access, acceptable use, and safety rules.
-          </label>
-          <label class="toggle-field legal-toggle">
-            <input type="checkbox" name="acceptedPrivacy" required />
-            I agree to the Privacy Notice covering account data, session cookies, and optional location sharing.
-          </label>
-          <label>
-            Location sharing preference
-            <select name="locationTrackingPreference">
-              <option value="unset">Decide later in my account</option>
-              <option value="device">Use device location when I allow it</option>
-              <option value="manual">I prefer setting my location manually</option>
-              <option value="declined">Do not track my location</option>
-            </select>
-          </label>
-          <button class="primary-button form-button" type="submit">Create account</button>
-        </form>
-        <div class="form-feedback" id="register-feedback"></div>
-        <div class="legal-panel">
-          <details class="legal-details">
-            <summary>Terms of Service summary</summary>
-            <p>
-              PredatorGuard access is limited to authenticated members. You are responsible for
-              lawful use, truthful account data, protecting your credentials, and following safety
-              and moderation workflows. Access can be suspended for abuse, unsafe conduct, or
-              policy violations.
-            </p>
-          </details>
-          <details class="legal-details">
-            <summary>Privacy Notice summary</summary>
-            <p>
-              Your account data is encrypted at rest, your session is protected with an HTTP-only
-              cookie, and your location is only ever shared after you opt in. You can review and
-              change your location-sharing preference at any time from your account page.
-            </p>
-          </details>
-          <p class="hero-text legal-caption">
-            Legal version effective June 22, 2026. You can review and update location-sharing
-            settings later from your account page.
-          </p>
-        </div>
-      </section>
+      </div>
     </div>
     <script src="./config.js?v=20260709pogo"></script>
     <script src="./browser-app.js?v=20260711mock2" defer></script>

@@ -4084,11 +4084,6 @@ async function handlePage(request, response, urlPath) {
   const canonicalRoute = canonicalRouteMap.get(routePath);
 
   if (urlPath.endsWith(".html") && canonicalRoute) {
-    if (routePath === "/index.html" && user) {
-      sendRedirect(response, user.isAdmin ? "/admin" : "/dashboard");
-      return;
-    }
-
     if (protectedRoutes.has(routePath) && !user) {
       sendRedirect(response, "/");
       return;
@@ -4100,11 +4095,6 @@ async function handlePage(request, response, urlPath) {
     }
 
     sendRedirect(response, canonicalRoute);
-    return;
-  }
-
-  if (routePath === "/index.html" && user) {
-    sendRedirect(response, user.isAdmin ? "/admin" : "/dashboard");
     return;
   }
 
