@@ -2140,6 +2140,32 @@ function renderRedditSidebar() {
   `;
 }
 
+const NAV_ICON_PATHS = {
+  dashboard:
+    '<rect x="3" y="3" width="8" height="8" rx="2"/><rect x="13" y="3" width="8" height="5" rx="2"/><rect x="13" y="10" width="8" height="11" rx="2"/><rect x="3" y="13" width="8" height="8" rx="2"/>',
+  onboarding:
+    '<circle cx="12" cy="8" r="3.2"/><path d="M5 20c0-3.9 3.1-7 7-7s7 3.1 7 7"/>',
+  missions: '<path d="M5 3v18"/><path d="M5 4h11l-2.5 3.5L16 11H5"/>',
+  map: '<path d="M12 21s-7-6.2-7-11a7 7 0 0 1 14 0c0 4.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.4"/>',
+  training: '<path d="M4 5h7v15H4z"/><path d="M13 5h7v15h-7z"/>',
+  reporting: '<path d="M6 3h9l4 4v14H6z"/><path d="M15 3v4h4"/><path d="M9 12h7M9 16h5"/>',
+  leaderboard:
+    '<rect x="4" y="12" width="4" height="8"/><rect x="10" y="7" width="4" height="13"/><rect x="16" y="3" width="4" height="17"/>',
+  "field ops": '<path d="M12 3l7 3v6c0 4.5-3 8-7 9-4-1-7-4.5-7-9V6z"/>',
+  roadmap:
+    '<circle cx="6" cy="6" r="2.3"/><circle cx="18" cy="18" r="2.3"/><path d="M8 7.5c2 2 6 2 8 8"/>',
+  account:
+    '<rect x="4" y="5" width="16" height="14" rx="2.4"/><circle cx="12" cy="10.5" r="2.4"/><path d="M8 17c0-2 1.8-3.2 4-3.2s4 1.2 4 3.2"/>',
+  admin:
+    '<circle cx="8" cy="15" r="3"/><path d="M10.5 12.5 18 5M18 5l2 2M15.5 7.5l1.7 1.7"/>',
+  "sign in": '<path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M21 4v16"/>'
+};
+
+function getNavIconMarkup(title) {
+  const inner = NAV_ICON_PATHS[title.trim().toLowerCase()] || '<circle cx="12" cy="12" r="3"/>';
+  return `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${inner}</svg>`;
+}
+
 function applyProtectedPageShell() {
   const shell = document.querySelector(".page-shell");
   const hero = shell?.querySelector("header.hero");
@@ -2154,40 +2180,59 @@ function applyProtectedPageShell() {
   shell.dataset.appShellApplied = "true";
   shell.classList.add("app-shell-mock");
 
-  // Mockup app shell: a full-width top nav (logo · inline page tabs · session
-  // cluster) over a single centered content column. No side rails.
-  const appNav = document.createElement("nav");
-  appNav.className = "app-nav";
-  appNav.setAttribute("aria-label", "Application");
-  appNav.innerHTML =
-    '<div class="app-nav-left">' +
-    '<a class="pub-logo app-nav-logo" href="' +
-    escapeHtml(getPageUrl("dashboard")) +
-    '"><span class="mark">◆</span>PredatorGuard</a>' +
-    "</div>";
+  // App shell: a floating left sidebar (avatar, icon nav, sign-out) beside a
+  // single content column, built at runtime from the existing #site-nav links.
+  const sidebar = document.createElement("aside");
+  sidebar.className = "app-sidebar";
 
-  const navLeft = appNav.querySelector(".app-nav-left");
-  if (nav) {
-    nav.classList.add("app-nav-links");
-    navLeft.appendChild(nav);
-  }
-
-  const navRight = document.createElement("div");
-  navRight.className = "app-nav-right";
-  const cluster = topbar.querySelector(".nav-cluster");
-  if (cluster) {
-    navRight.appendChild(cluster);
-  }
+  const sidebarTop = document.createElement("div");
+  sidebarTop.className = "app-sidebar-top";
   if (sessionUser) {
     const avatarLink = document.createElement("a");
-    avatarLink.className = "app-nav-avatar";
+    avatarLink.className = "app-sidebar-avatar";
     avatarLink.href = getPageUrl("account");
     avatarLink.setAttribute("aria-label", "Account");
     avatarLink.innerHTML = renderAvatarMarkup(sessionUser);
-    navRight.appendChild(avatarLink);
+    sidebarTop.appendChild(avatarLink);
+  } else {
+    const logo = document.createElement("a");
+    logo.className = "app-sidebar-logo";
+    logo.href = getPageUrl("dashboard");
+    logo.innerHTML = '<span class="mark">◆</span>';
+    sidebarTop.appendChild(logo);
   }
-  appNav.appendChild(navRight);
 
+  const cluster = topbar.querySelector(".nav-cluster");
+  const statusPill = cluster?.querySelector(".status-pill");
+  if (statusPill) {
+    statusPill.classList.add("app-sidebar-status");
+    sidebarTop.appendChild(statusPill);
+  }
+
+  if (nav) {
+    nav.classList.add("app-sidebar-links");
+    nav.querySelectorAll(".nav-link").forEach((anchor) => {
+      const label = anchor.textContent;
+      anchor.textContent = "";
+      const icon = document.createElement("span");
+      icon.className = "nav-link-icon";
+      icon.innerHTML = getNavIconMarkup(label);
+      const labelSpan = document.createElement("span");
+      labelSpan.className = "nav-link-label";
+      labelSpan.textContent = label;
+      anchor.append(icon, labelSpan);
+    });
+  }
+
+  const sidebarBottom = document.createElement("div");
+  sidebarBottom.className = "app-sidebar-bottom";
+  const signOutButton = cluster?.querySelector("[data-signout]");
+  if (signOutButton) {
+    signOutButton.classList.add("app-sidebar-signout");
+    sidebarBottom.appendChild(signOutButton);
+  }
+
+  sidebar.append(sidebarTop, nav, sidebarBottom);
   topbar.remove();
 
   const mainCol = document.createElement("div");
@@ -2198,7 +2243,7 @@ function applyProtectedPageShell() {
   mainCol.appendChild(appPage);
 
   shell.textContent = "";
-  shell.append(appNav, mainCol);
+  shell.append(sidebar, mainCol);
 }
 
 function createNav() {
